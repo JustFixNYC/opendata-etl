@@ -34,7 +34,7 @@
     },
     "params": {
       "type": "array",
-      "description": "Named query parameters; must line up with :name binds in sql (enforced in code later).",
+      "description": "Named query parameters; must line up with :name binds in sql (enforced in code later). Types ending in _list accept repeated query keys (e.g. ?id=1&id=2) bound as a single sequence.",
       "items": { "$ref": "#/$defs/param" }
     },
     "output": {
@@ -69,7 +69,17 @@
         },
         "type": {
           "type": "string",
-          "enum": ["string", "integer", "number", "boolean", "date", "datetime"]
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "date",
+            "datetime",
+            "string_list",
+            "integer_list",
+            "number_list"
+          ]
         },
         "required": { "type": "boolean" },
         "default": {},

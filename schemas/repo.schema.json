@@ -27,6 +27,7 @@
     },
     "owners": {
       "type": "array",
+      "description": "Maintainer / contact / governance metadata for humans and docs, not authentication, Postgres roles, or deployment ACLs.",
       "items": { "type": "string", "minLength": 1, "maxLength": 320 },
       "uniqueItems": true
     },

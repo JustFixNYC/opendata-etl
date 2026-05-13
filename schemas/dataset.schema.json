@@ -44,6 +44,13 @@
       "maxLength": 63,
       "pattern": "^[a-z_][a-z0-9_]*$"
     },
+    "crsEpsgUri": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 32,
+      "pattern": "^EPSG:[1-9][0-9]{3,6}$",
+      "description": "CRS as an authority URI (e.g. EPSG:4326) for loaders such as ogr2ogr / PostGIS."
+    },
     "column": {
       "type": "object",
       "additionalProperties": false,
@@ -148,6 +155,24 @@
           "type": "string",
           "description": "Optional format hint (e.g. geojson, newline_json).",
           "maxLength": 64
+        },
+        "target_crs": {
+          "allOf": [
+            { "$ref": "#/$defs/crsEpsgUri" },
+            {
+              "title": "Target CRS",
+              "description": "Load-time reprojection: stored geometry is transformed to this CRS (e.g. ogr2ogr -t_srs)."
+            }
+          ]
+        },
+        "source_crs": {
+          "allOf": [
+            { "$ref": "#/$defs/crsEpsgUri" },
+            {
+              "title": "Source CRS override",
+              "description": "When the driver cannot infer CRS reliably, set the source CRS explicitly (e.g. ogr2ogr -s_srs)."
+            }
+          ]
         }
       },
       "allOf": [
@@ -191,6 +216,7 @@
         },
         "indexes": {
           "type": "array",
+          "description": "Each item lists one or more columns to index (scalar columns use btree). For columns declared with type geometry, the loader creates GiST indexes by convention unless a future schema adds explicit index methods.",
           "items": { "$ref": "#/$defs/indexDef" }
         },
         "foreign_keys": {
