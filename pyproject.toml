@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opendata-etl"
+version = "0.0.0"
+description = "AGPLv3 framework for Postgres-targeted ETL, derived jobs, and read-only APIs from external definition repositories."
+readme = "README.md"
+license = "AGPL-3.0"
+requires-python = ">=3.11"
+authors = [{ name = "opendata-etl contributors" }]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: GNU Affero General Public License v3",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pipeline*", "api*"]

@@ -1,0 +1,8 @@
+name: opendata-etl
+
+# Skeleton only. Step 4 adds Postgres, MinIO, Dagster, and API services.
+services:
+  _compose_skeleton:
+    image: alpine:3.19
+    command: ["true"]
+    profiles: ["ci-validate"]
