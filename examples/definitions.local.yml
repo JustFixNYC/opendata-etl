@@ -1,0 +1,17 @@
+api_version: opendata-etl.definitions/v1
+notes: Local developer manifest — fake URLs and credential names only.
+source_credentials:
+  fake_source_reader:
+    kind: aws_profile
+    description: Example placeholder; runtime maps this name via environment (no secrets in YAML).
+definitions:
+  - name: example_collection
+    url: "https://github.com/example-org/example-definition-repo.git"
+    ref: main
+    schema: ex_housing
+    protected: false
+    depends_on: []
+    enabled_datasets:
+      - sample_csv
+      - bundle_demo
+      - s3_fixture

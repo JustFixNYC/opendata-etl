@@ -1,1 +1,203 @@
-{}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendata-etl.dev/schemas/dataset.schema.json",
+  "title": "Dataset definition (datasets/*.yml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "tables"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Dataset id (matches definitions[].enabled_datasets entries when subsetting)."
+    },
+    "description": { "type": "string", "maxLength": 4000 },
+    "schedule": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Cron expression in UTC (passed to orchestration later)."
+    },
+    "freshness_sla_hours": { "type": "number", "minimum": 0 },
+    "schema_contract": {
+      "type": "string",
+      "enum": ["freeze", "evolve"]
+    },
+    "depends_on": {
+      "type": "array",
+      "description": "Other dataset names within the same definition repo that must materialize first.",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "uniqueItems": true
+    },
+    "tables": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/table" }
+    }
+  },
+  "$defs": {
+    "postgresIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z_][a-z0-9_]*$"
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "$ref": "#/$defs/postgresIdentifier" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "text",
+            "bigint",
+            "integer",
+            "double",
+            "numeric",
+            "boolean",
+            "date",
+            "timestamp",
+            "timestamptz",
+            "geometry",
+            "jsonb"
+          ]
+        },
+        "formats": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "description": "Optional strptime-style format hints for date/timestamp parsing."
+        },
+        "nullable": { "type": "boolean", "default": true }
+      }
+    },
+    "indexDef": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/postgresIdentifier" }
+    },
+    "foreignKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["columns", "references"],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/postgresIdentifier" }
+        },
+        "references": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["table", "columns"],
+          "properties": {
+            "table": { "$ref": "#/$defs/postgresIdentifier" },
+            "columns": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/postgresIdentifier" }
+            }
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["csv", "json", "s3_object", "shapefile", "http"]
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "HTTP(S) URL for csv, json, http, or shapefile (zip/shp) when hosted over HTTP."
+        },
+        "bucket": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "S3 bucket for type s3_object."
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Object key for type s3_object."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Filesystem path hint for shapefile bundles (orchestrator-defined; not a secret)."
+        },
+        "credential": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Named credential from deployment definitions.yml source_credentials (no secret material)."
+        },
+        "format": {
+          "type": "string",
+          "description": "Optional format hint (e.g. geojson, newline_json).",
+          "maxLength": 64
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "csv" } }, "required": ["type"] },
+          "then": { "required": ["url"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "json" } }, "required": ["type"] },
+          "then": { "required": ["url"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "http" } }, "required": ["type"] },
+          "then": { "required": ["url"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "s3_object" } }, "required": ["type"] },
+          "then": { "required": ["bucket", "key", "credential"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "shapefile" } }, "required": ["type"] },
+          "then": {
+            "anyOf": [{ "required": ["url"] }, { "required": ["path"] }]
+          }
+        }
+      ]
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "columns"],
+      "properties": {
+        "name": { "$ref": "#/$defs/postgresIdentifier" },
+        "description": { "type": "string", "maxLength": 2000 },
+        "geospatial": { "type": "boolean" },
+        "source": { "$ref": "#/$defs/source" },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/column" }
+        },
+        "indexes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/indexDef" }
+        },
+        "foreign_keys": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/foreignKey" }
+        }
+      }
+    }
+  }
+}

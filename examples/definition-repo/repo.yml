@@ -1,0 +1,7 @@
+name: example_collection
+display_name: Example definition repository (fixture)
+default_schema: ex_housing
+owners:
+  - maintainers@example.invalid
+framework_version: ">=0.0.0,<2.0"
+dependencies: []

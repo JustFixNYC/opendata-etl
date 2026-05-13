@@ -1,0 +1,26 @@
+api_version: opendata-etl.definitions/v1
+notes: Illustrative multi-repo production manifest (pinned refs, grants, subset of datasets).
+source_credentials:
+  fake_source_reader:
+    kind: aws_iam
+    description: Example placeholder for EC2 instance role or ambient AWS credentials.
+definitions:
+  - name: core_housing
+    url: "https://github.com/example-org/core-housing-definitions.git"
+    ref: "v0.1.0"
+    schema: nyc_housing
+    protected: false
+    enabled_datasets:
+      - sample_csv
+  - name: derived_reports
+    url: "https://github.com/example-org/derived-reports-definitions.git"
+    ref: "abc1234deadbeef0"
+    schema: nyc_reports
+    protected: true
+    depends_on:
+      - core_housing
+    cross_repo_grants:
+      - schema: nyc_housing
+        access: read
+    enabled_datasets:
+      - bundle_demo

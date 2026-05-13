@@ -1,0 +1,12 @@
+name: s3_fixture
+description: Illustrates a named deployment credential for an S3 object source (no secrets in-repo).
+tables:
+  - name: data_slice
+    source:
+      type: s3_object
+      bucket: example-lake-placeholder
+      key: curated/sample.csv
+      credential: fake_source_reader
+    columns:
+      - name: col_a
+        type: text

@@ -1,1 +1,47 @@
-{}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendata-etl.dev/schemas/repo.schema.json",
+  "title": "Definition repository metadata (repo.yml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "default_schema"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Stable identifier for this definition repo (matches deployment definitions[].name).",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "default_schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z_][a-z0-9_]*$",
+      "description": "Default Postgres schema for materialized tables; deployments may override via definitions[].schema."
+    },
+    "owners": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 320 },
+      "uniqueItems": true
+    },
+    "framework_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Declared compatible opendata-etl / schema contract range (semver range text)."
+    },
+    "dependencies": {
+      "type": "array",
+      "description": "Other definition repo names this repo expects at authoring time (CI/docs); runtime ordering uses deployment depends_on.",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9_-]*$" },
+      "uniqueItems": true,
+      "default": []
+    }
+  }
+}

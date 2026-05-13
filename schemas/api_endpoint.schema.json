@@ -1,1 +1,83 @@
-{}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendata-etl.dev/schemas/api_endpoint.schema.json",
+  "title": "Read-only API endpoint (api_endpoints/*.yml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["path", "method", "params", "output", "sql"],
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^/",
+      "description": "FastAPI route path (leading slash)."
+    },
+    "method": {
+      "type": "string",
+      "enum": ["GET", "HEAD"],
+      "description": "Only GET (and optional HEAD) are supported for read-only endpoints."
+    },
+    "description": { "type": "string", "maxLength": 4000 },
+    "statement_timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600
+    },
+    "rate_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "anonymous": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "api_key": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "params": {
+      "type": "array",
+      "description": "Named query parameters; must line up with :name binds in sql (enforced in code later).",
+      "items": { "$ref": "#/$defs/param" }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["json", "geojson", "csv"]
+        }
+      }
+    },
+    "sql": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 262144,
+      "description": "Single SELECT or WITH … SELECT; validated by SQL parser in a later step."
+    }
+  },
+  "$defs": {
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "integer", "number", "boolean", "date", "datetime"]
+        },
+        "required": { "type": "boolean" },
+        "default": {},
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "regex": { "type": "string", "maxLength": 512 },
+        "description": { "type": "string", "maxLength": 2000 }
+      }
+    }
+  }
+}

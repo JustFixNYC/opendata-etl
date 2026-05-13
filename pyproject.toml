@@ -20,7 +20,10 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = []
+dev = [
+  "PyYAML>=6.0.1",
+  "jsonschema>=4.21.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

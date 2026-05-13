@@ -1,0 +1,17 @@
+name: sample_csv
+description: Minimal single-table CSV fixture for JSON Schema validation.
+schedule: "0 5 * * *"
+freshness_sla_hours: 48
+schema_contract: freeze
+tables:
+  - name: rows
+    source:
+      type: csv
+      url: "https://example.invalid/opendata-etl-fixtures/rows.csv"
+    columns:
+      - name: id
+        type: bigint
+      - name: label
+        type: text
+    indexes:
+      - [id]

@@ -1,1 +1,146 @@
-{}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendata-etl.dev/schemas/definitions.schema.json",
+  "title": "Deployment manifest (definitions.yml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["definitions"],
+  "properties": {
+    "api_version": {
+      "type": "string",
+      "const": "opendata-etl.definitions/v1",
+      "description": "Optional contract version; when present must match this value."
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 8000,
+      "description": "Non-executable deployment notes (runbooks, owners, etc.)."
+    },
+    "source_credentials": {
+      "type": "object",
+      "description": "Named credentials referenced from dataset YAML (values are hints only; never secrets).",
+      "minProperties": 0,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/sourceCredentialDecl" }
+    },
+    "definitions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/definitionRepoRef" }
+    }
+  },
+  "$defs": {
+    "postgresIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z_][a-z0-9_]*$"
+    },
+    "sourceCredentialDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Adapter hint for runtime resolution (env, IAM, MinIO, etc.).",
+          "enum": [
+            "env",
+            "aws_profile",
+            "aws_iam",
+            "aws_ssm",
+            "minio",
+            "none",
+            "custom"
+          ]
+        },
+        "description": { "type": "string", "maxLength": 2000 },
+        "assume_role_arn": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 2048,
+          "description": "Optional STS role for protected buckets (no secrets here)."
+        }
+      }
+    },
+    "crossRepoGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "access"],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/postgresIdentifier",
+          "description": "Foreign Postgres schema this repo's processing role may read."
+        },
+        "access": {
+          "type": "string",
+          "const": "read",
+          "description": "Grant flavor (read-only). Uses key access instead of the YAML-1.1-unsafe bare key on."
+        }
+      }
+    },
+    "definitionRepoRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "url", "ref", "schema", "protected"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Matches definition repo repo.yml name."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Git clone URL (https:// or file://)."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Pinned git commit SHA, tag, or branch name."
+        },
+        "schema": {
+          "$ref": "#/$defs/postgresIdentifier",
+          "description": "Target Postgres schema for this repo in this deployment (overrides repo default_schema)."
+        },
+        "protected": {
+          "type": "boolean",
+          "description": "When true, anonymous API tier must not receive SELECT on this schema."
+        },
+        "depends_on": {
+          "type": "array",
+          "description": "Runtime load order / composition: other definition repo names that must appear in this manifest.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*$"
+          },
+          "uniqueItems": true,
+          "default": []
+        },
+        "enabled_datasets": {
+          "type": "array",
+          "description": "If set, only these dataset ids from the repo are registered; omit for all datasets.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "cross_repo_grants": {
+          "type": "array",
+          "description": "Explicit SELECT-style access from this repo to rows in another schema (does not follow depends_on automatically).",
+          "items": { "$ref": "#/$defs/crossRepoGrant" }
+        }
+      }
+    }
+  }
+}
