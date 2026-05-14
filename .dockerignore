@@ -15,3 +15,4 @@ build
 htmlcov
 .coverage
 coverage.xml
+.env
