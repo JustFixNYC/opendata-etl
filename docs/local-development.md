@@ -22,12 +22,12 @@ Services:
 |------------|---------|
 | `postgres` | PostgreSQL 16 + PostGIS (`postgis/postgis:16-3.4`). |
 | `minio`    | S3-compatible landing zone. Console on host port `MINIO_CONSOLE_PORT` (default 9001). |
-| `dagster`  | `dagster dev` against an **empty** `Definitions` shell (`pipeline.dagster_defs`). |
+| `dagster`  | `dagster dev` with skeleton dataset assets from `pipeline.factory` (`pipeline.dagster_defs`). |
 | `api`      | FastAPI shell with `GET /healthz` only (no DB probe until connection pools exist). |
 
-**Blockers / placeholders (Step 4):**
+**Blockers / placeholders (Step 4+):**
 
-- Dagster has **no** dataset assets yet (Step 6). The UI should load with an empty code location.
+- Dagster assets are **skeleton only** (no extract/load until Steps 7–8); the UI lists one asset per dataset table from loaded repos.
 - The API does not load `api_endpoints/*.yml` yet (Steps 10–11).
 - Create the MinIO bucket named in `S3_BUCKET` (default `opendata-landing`) before extractors write objects; Compose does not auto-create it.
 
@@ -37,6 +37,7 @@ Copy `.env.example` to `.env` and adjust. Compose injects paths used by later st
 
 - `OPENDATA_DEFINITIONS_MANIFEST_PATH` — path to `definitions.yml` **inside the container** (image includes `examples/`).
 - `OPENDATA_DEFINITIONS_WORK_DIR` — writable clone target passed as `work_dir` to `load_definitions`.
+- `OPENDATA_DAGSTER_DEFINITION_LOAD` — `auto` (default in code when unset), `clone`, or `embedded`. With `examples/definitions.local.yml`, the placeholder HTTPS URL fails git clone, so **`auto` falls back** to the checked-in `examples/definition-repo` and you still see assets locally. Use `file://` remotes plus real refs (or `embedded`) when you want deterministic behavior without a warning.
 - `DATABASE_URL`, `S3_*` — consumed by future loaders/API; defaults match local Compose service names.
 
 ## Pinned refs and `definitions.yml`

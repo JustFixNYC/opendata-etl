@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Minimal Dagster :class:`~dagster.Definitions` for local Compose (Step 4 shell).
-
-Replace or extend this module once :mod:`pipeline.factory` registers assets from
-loaded definition repos (Step 6).
-"""
+"""Dagster :class:`~dagster.Definitions` entrypoint (``dagster dev -m pipeline.dagster_defs``)."""
 
 from __future__ import annotations
 
-from dagster import Definitions
+from pathlib import Path
 
-defs = Definitions()
+from pipeline.factory import build_dagster_definitions
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+defs = build_dagster_definitions(repo_root=_REPO_ROOT)

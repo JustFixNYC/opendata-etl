@@ -48,7 +48,7 @@ Planning files live in the shared **`_planning/`** folder of the multi-repo work
 
 ## Status
 
-**Step 4** of the master plan: local **Docker Compose** (PostGIS, MinIO, Dagster and API shells), `.env.example`, CI `docker compose config`, and [docs/local-development.md](docs/local-development.md). Asset factory, full API routes, and production AWS wiring are **not** implemented yet; follow the master plan for upcoming steps.
+**Step 4–6** of the master plan: local **Docker Compose** (PostGIS, MinIO, Dagster and API shells), `.env.example`, CI `docker compose config`, skeleton **Dagster dataset assets** from YAML (`pipeline.factory` / `pipeline.dagster_defs`), and [docs/local-development.md](docs/local-development.md). Full extract/load, API routes from YAML, and production AWS wiring are **not** implemented yet; follow the master plan for upcoming steps.
 
 ## Contributing
 
