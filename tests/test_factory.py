@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import textwrap
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from pipeline.factory import (
     embedded_example_load_result,
     python_fn_name_for_table_asset,
     table_asset_key_parts,
+    _resolve_manifest_for_dagster,
+    _resolve_work_dir_for_dagster,
 )
 
 
@@ -45,6 +48,23 @@ def _minimal_table_yaml(
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def test_resolve_manifest_falls_back_when_docker_path_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("OPENDATA_DEFINITIONS_MANIFEST_PATH", "/workspace/examples/definitions.local.yml")
+    got = _resolve_manifest_for_dagster(repo_root=root, manifest_path=None)
+    assert got == (root / "examples" / "definitions.local.yml").resolve()
+    assert got.is_file()
+
+
+def test_resolve_work_dir_falls_back_when_docker_path_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("OPENDATA_DEFINITIONS_WORK_DIR", "/workspace/data/definitions_work")
+    if Path("/workspace").is_dir():
+        pytest.skip("/workspace exists on this host; cannot assert Docker-path fallback")
+    got = _resolve_work_dir_for_dagster(repo_root=root, work_dir=None)
+    assert got == (root / "data" / "definitions_work").resolve()
 
 
 def test_table_asset_key_parts() -> None:

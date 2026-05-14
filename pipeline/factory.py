@@ -17,6 +17,56 @@ from pipeline.validation import load_yaml
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _default_examples_manifest(repo_root: Path) -> Path:
+    return (repo_root / "examples" / "definitions.local.yml").resolve()
+
+
+def _default_definitions_work_dir(repo_root: Path) -> Path:
+    return (repo_root / "data" / "definitions_work").resolve()
+
+
+def _resolve_manifest_for_dagster(*, repo_root: Path, manifest_path: Path | None) -> Path:
+    """Use ``manifest_path`` if passed; else env or repo default. If env points at a missing file (e.g. Docker
+    ``/workspace/...`` from ``.env``), fall back to ``examples/definitions.local.yml`` under ``repo_root``."""
+    default = _default_examples_manifest(repo_root)
+    if manifest_path is not None:
+        return manifest_path.resolve()
+    raw = os.environ.get("OPENDATA_DEFINITIONS_MANIFEST_PATH")
+    if not raw:
+        return default
+    candidate = Path(raw).expanduser()
+    resolved = candidate.resolve() if candidate.is_absolute() else (repo_root / candidate).resolve()
+    if resolved.is_file():
+        return resolved
+    warnings.warn(
+        f"OPENDATA_DEFINITIONS_MANIFEST_PATH={raw!r} is not a readable file on this host; "
+        f"using {default} for Dagster definitions.",
+        UserWarning,
+        stacklevel=2,
+    )
+    return default
+
+
+def _resolve_work_dir_for_dagster(*, repo_root: Path, work_dir: Path | None) -> Path:
+    """Same pattern as manifest: Compose ``/workspace/...`` paths often break host-only ``dagster dev``."""
+    default = _default_definitions_work_dir(repo_root)
+    if work_dir is not None:
+        return work_dir.resolve()
+    raw = os.environ.get("OPENDATA_DEFINITIONS_WORK_DIR")
+    if not raw:
+        return default
+    candidate = Path(raw).expanduser()
+    resolved = candidate.resolve() if candidate.is_absolute() else (repo_root / candidate).resolve()
+    workspace_root = Path("/workspace")
+    if "/workspace" in str(resolved) and not workspace_root.is_dir():
+        warnings.warn(
+            f"OPENDATA_DEFINITIONS_WORK_DIR={raw!r} uses a container path that does not exist on this host; "
+            f"using {default} for Dagster definitions.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return default
+    return resolved
 @dataclass(frozen=True)
 class TableSkeletonSpec:
     """One logical table asset: key parts and upstream table keys (same 4-segment shape)."""
@@ -317,15 +367,7 @@ def build_dagster_definitions(
 ) -> Any:
     """Resolve deployment manifest (or embedded fallback) and build skeleton :class:`~dagster.Definitions`."""
     root = repo_root.resolve() if repo_root is not None else _REPO_ROOT
-    manifest = (
-        manifest_path.resolve()
-        if manifest_path is not None
-        else Path(os.environ.get("OPENDATA_DEFINITIONS_MANIFEST_PATH", str(root / "examples" / "definitions.local.yml"))).resolve()
-    )
-    work = (
-        work_dir.resolve()
-        if work_dir is not None
-        else Path(os.environ.get("OPENDATA_DEFINITIONS_WORK_DIR", str(root / "data" / "definitions_work"))).resolve()
-    )
+    manifest = _resolve_manifest_for_dagster(repo_root=root, manifest_path=manifest_path)
+    work = _resolve_work_dir_for_dagster(repo_root=root, work_dir=work_dir)
     load_result = resolve_definitions_load_result(manifest_path=manifest, work_dir=work, repo_root=root)
     return dagster_definitions_from_load_result(load_result)
