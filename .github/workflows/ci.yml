@@ -19,7 +19,7 @@ jobs:
       - name: Parse pyproject.toml
         run: python3 -c "import tomllib, pathlib; tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))"
       - name: Install definition validation dependencies
-        run: python3 -m pip install 'PyYAML>=6.0.1' 'jsonschema>=4.21.0' 'pytest>=8.0.0'
+        run: python3 -m pip install 'PyYAML>=6.0.1' 'jsonschema>=4.21.0' 'pytest>=8.0.0' 'psycopg[binary]>=3.1.18'
       - name: Run unit tests
         run: python3 -m pytest -q
       - name: Run example fixture validation

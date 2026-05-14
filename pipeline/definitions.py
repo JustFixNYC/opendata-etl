@@ -132,31 +132,12 @@ def _normalize_entry(raw: Any, idx: int) -> dict[str, Any]:
     return raw
 
 
-def load_definitions(
-    manifest_path: Path,
-    work_dir: Path,
-    *,
-    validate_repo_tree: bool = True,
-) -> DefinitionsLoadResult:
-    """Load ``definitions.yml``, clone each repo to ``work_dir / name``, validate, return ordered result.
+def ordered_deployment_definition_entries(deployment: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    """Return ``definitions`` rows in dependency-first topological order (same as ``load_definitions``).
 
-    Parameters
-    ----------
-    manifest_path:
-        Path to deployment manifest (``definitions.yml``).
-    work_dir:
-        Directory under which each ``definitions[].name`` checkout is created.
-    validate_repo_tree:
-        When true, JSON-Schema validate ``repo.yml``, ``datasets/*.yml``, and ``api_endpoints/*.yml``.
+    Validates duplicate ``name`` / ``schema``, ``depends_on``, and ``cross_repo_grants`` the same way
+    as the loader (without cloning repos). Call after ``validate_deployment_document``.
     """
-    manifest_path = manifest_path.resolve()
-    work_dir = work_dir.resolve()
-    raw = load_yaml(manifest_path)
-    try:
-        deployment = validate_deployment_document(raw, str(manifest_path))
-    except SchemaValidationError as e:
-        raise DefinitionsLoadError(str(e).rstrip()) from e
-
     defs_list = deployment.get("definitions")
     if not isinstance(defs_list, list) or not defs_list:
         raise DefinitionsLoadError("definitions: must be a non-empty array")
@@ -197,17 +178,70 @@ def load_definitions(
     except Exception as ex:  # pragma: no cover
         raise DefinitionsLoadError(str(ex)) from ex
 
+    all_schemas = {str(e["schema"]) for e in entries}
+    ordered: list[dict[str, Any]] = []
+    for name in topo_names:
+        entry = next(e for e in entries if str(e["name"]) == name)
+        schema = str(entry["schema"])
+        grants = entry.get("cross_repo_grants") or []
+        if not isinstance(grants, list):
+            raise DefinitionsLoadError(f"{name}: cross_repo_grants must be an array when present")
+        for g in grants:
+            if not isinstance(g, dict):
+                raise DefinitionsLoadError(f"{name}: cross_repo_grants items must be mappings")
+            foreign = g.get("schema")
+            if not isinstance(foreign, str):
+                continue
+            if foreign == schema:
+                raise DefinitionsLoadError(
+                    f"{name}: cross_repo_grants must not target this repo's own schema {foreign!r}"
+                )
+            if foreign not in all_schemas:
+                raise DefinitionsLoadError(
+                    f"{name}: cross_repo_grants references unknown schema {foreign!r} "
+                    f"(not a definitions[].schema in this manifest)"
+                )
+        ordered.append(entry)
+    return tuple(ordered)
+
+
+def load_definitions(
+    manifest_path: Path,
+    work_dir: Path,
+    *,
+    validate_repo_tree: bool = True,
+) -> DefinitionsLoadResult:
+    """Load ``definitions.yml``, clone each repo to ``work_dir / name``, validate, return ordered result.
+
+    Parameters
+    ----------
+    manifest_path:
+        Path to deployment manifest (``definitions.yml``).
+    work_dir:
+        Directory under which each ``definitions[].name`` checkout is created.
+    validate_repo_tree:
+        When true, JSON-Schema validate ``repo.yml``, ``datasets/*.yml``, and ``api_endpoints/*.yml``.
+    """
+    manifest_path = manifest_path.resolve()
+    work_dir = work_dir.resolve()
+    raw = load_yaml(manifest_path)
+    try:
+        deployment = validate_deployment_document(raw, str(manifest_path))
+    except SchemaValidationError as e:
+        raise DefinitionsLoadError(str(e).rstrip()) from e
+
+    ordered_entries = ordered_deployment_definition_entries(deployment)
+
     creds = deployment.get("source_credentials") or {}
     if not isinstance(creds, dict):
         raise DefinitionsLoadError("source_credentials must be a mapping when present")
 
     _require_git()
     loaded: list[LoadedDefinitionRepo] = []
-    schema_targets: dict[str, str] = {str(e["name"]): str(e["schema"]) for e in entries}
-    all_schemas = set(schema_targets.values())
+    name_set = {str(e["name"]) for e in ordered_entries}
 
-    for topo_index, name in enumerate(topo_names):
-        entry = next(e for e in entries if str(e["name"]) == name)
+    for topo_index, entry in enumerate(ordered_entries):
+        name = str(entry["name"])
         url = str(entry["url"])
         ref = str(entry["ref"])
         schema = str(entry["schema"])
@@ -257,25 +291,7 @@ def load_definitions(
             )
 
         grants = entry.get("cross_repo_grants") or []
-        if not isinstance(grants, list):
-            raise DefinitionsLoadError(f"{name}: cross_repo_grants must be an array when present")
-        grant_tuples: list[dict[str, Any]] = []
-        for g in grants:
-            if not isinstance(g, dict):
-                raise DefinitionsLoadError(f"{name}: cross_repo_grants items must be mappings")
-            grant_tuples.append(dict(g))
-            foreign = g.get("schema")
-            if not isinstance(foreign, str):
-                continue
-            if foreign == schema:
-                raise DefinitionsLoadError(
-                    f"{name}: cross_repo_grants must not target this repo's own schema {foreign!r}"
-                )
-            if foreign not in all_schemas:
-                raise DefinitionsLoadError(
-                    f"{name}: cross_repo_grants references unknown schema {foreign!r} "
-                    f"(not a definitions[].schema in this manifest)"
-                )
+        grant_tuples: tuple[dict[str, Any], ...] = tuple(dict(g) for g in grants if isinstance(g, dict))
 
         try:
             assert_dataset_credentials_declared(deployment, dest, missing_manifest_entry_ok=False)
@@ -299,9 +315,9 @@ def load_definitions(
                 ref=ref,
                 schema=schema,
                 protected=protected,
-                depends_on=tuple(sorted(edges.get(name, frozenset()))),
+                depends_on=tuple(sorted(str(x) for x in (entry.get("depends_on") or []) if isinstance(x, str))),
                 enabled_datasets=enabled_tuple,
-                cross_repo_grants=tuple(grant_tuples),
+                cross_repo_grants=grant_tuples,
                 repo_yaml=repo_yaml,
                 topo_index=topo_index,
             )
@@ -313,5 +329,5 @@ def load_definitions(
         deployment=deployment,
         repos=tuple(loaded),
         source_credentials=dict(creds),
-        topo_order_names=tuple(topo_names),
+        topo_order_names=tuple(str(e["name"]) for e in ordered_entries),
     )

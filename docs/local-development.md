@@ -88,6 +88,23 @@ Notes:
 - `file://` must point at a **git** remote (bare `.git` directory or `.git` suffix as used in tests), not a plain working tree path, unless that path is a valid git URL for `git clone`.
 - Prefer pinned SHAs or tags for anything you intend to reproduce; branches are convenient but mutable.
 
+## Postgres schema and roles (Step 5)
+
+From the repo root, with Compose Postgres listening on the host (default port 5432):
+
+```bash
+docker compose up -d postgres
+export DATABASE_URL=postgresql://opendata:opendata@127.0.0.1:5432/opendata
+python3 scripts/provision_roles.py --manifest examples/definitions.prod.yml
+```
+
+The script is idempotent. It reads the same `definitions.yml` contract as `load_definitions` (via `pipeline.definitions.ordered_deployment_definition_entries` for ordering and `cross_repo_grants` rules), creates one schema per `definitions[].schema`, creates `opendata_<schema>_read` and `opendata_public_read`, applies `protected` / non-`protected` membership (`GRANT` / `REVOKE` of the per-schema read role to `opendata_public_read`), applies explicit `cross_repo_grants`, and creates the `opendata_auth` schema placeholder for Step 11.
+
+- Print SQL without connecting: `python3 scripts/provision_roles.py --manifest examples/definitions.prod.yml --print-sql`
+- Optional: `OPENDATA_PG_OWNER_ROLE` (default `opendata`) must match the role that will own loaded tables so `ALTER DEFAULT PRIVILEGES ... FOR ROLE` applies to future objects.
+
+**Smoke check (protected schema):** after provisioning with `examples/definitions.prod.yml`, connect as superuser, create a table in `nyc_reports`, then `SET ROLE opendata_public_read` and confirm `SELECT` on that table fails while `SELECT` on a table in `nyc_housing` succeeds. Automated equivalent: `OPENDATA_PROVISION_TEST_DATABASE_URL="$DATABASE_URL" python3 -m pytest -q tests/test_provisioning.py::test_live_postgres_public_read_cannot_select_protected_schema`.
+
 ## Non-Docker workflows
 
 - Validate manifests: `python3 scripts/validate_definitions.py --examples-default`.
