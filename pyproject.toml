@@ -23,8 +23,14 @@ classifiers = [
 dev = [
   "PyYAML>=6.0.1",
   "jsonschema>=4.21.0",
+  "pytest>=8.0.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["pipeline*", "api*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "needs_git: requires git with normal filesystem permissions for .git/hooks",
+]

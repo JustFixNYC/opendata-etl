@@ -15,11 +15,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile placeholder packages
-        run: python3 -m compileall pipeline api scripts
+        run: python3 -m compileall pipeline api scripts tests
       - name: Parse pyproject.toml
         run: python3 -c "import tomllib, pathlib; tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))"
       - name: Install definition validation dependencies
-        run: python3 -m pip install 'PyYAML>=6.0.1' 'jsonschema>=4.21.0'
+        run: python3 -m pip install 'PyYAML>=6.0.1' 'jsonschema>=4.21.0' 'pytest>=8.0.0'
+      - name: Run unit tests
+        run: python3 -m pytest -q
       - name: Run example fixture validation
         run: python3 scripts/validate_definitions.py --examples-default
       - name: Cross-check named credentials for example_collection
