@@ -26,3 +26,5 @@ jobs:
         run: python3 scripts/validate_definitions.py --examples-default
       - name: Cross-check named credentials for example_collection
         run: python3 scripts/validate_definitions.py --repo examples/definition-repo --deployment examples/definitions.local.yml --check-credentials
+      - name: Validate Docker Compose file (no image pull)
+        run: docker compose config -q

@@ -13,7 +13,6 @@ authors = [{ name = "opendata-etl contributors" }]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: GNU Affero General Public License v3",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -24,6 +23,14 @@ dev = [
   "PyYAML>=6.0.1",
   "jsonschema>=4.21.0",
   "pytest>=8.0.0",
+]
+compose = [
+  "dagster==1.13.4",
+  "dagster-webserver==1.13.4",
+  "fastapi>=0.115.6,<0.116",
+  "uvicorn[standard]>=0.32.0,<0.33",
+  "PyYAML>=6.0.1",
+  "jsonschema>=4.21.0",
 ]
 
 [tool.setuptools.packages.find]

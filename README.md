@@ -16,19 +16,28 @@ Framework repository for the **opendata-etl** project: an **AGPLv3** toolkit for
 
 ## Local development and definition repos
 
-Local and CI environments should use **pinned git revisions** for each definition repository (commit SHA or immutable tag). For offline or rapid iteration, git URLs may use the **`file://`** scheme to point at a local clone. Exact loader behavior is implemented in **Step 3** of the master plan; this repository already carries directory placeholders (`examples/definition-repo/`) for upcoming contract work.
+Local and CI environments should use **pinned git revisions** for each definition repository (commit SHA or immutable tag). For offline or rapid iteration, git URLs may use the **`file://`** scheme to point at a local clone. The loader is `pipeline.definitions.load_definitions` (see **Step 3** in the master plan).
 
-## Layout (skeleton)
+**Docker Compose** (PostGIS, MinIO, Dagster shell, FastAPI shell): copy `.env.example` to `.env`, then from the repo root run `docker compose config` and `docker compose up --build`. Detailed workflow, env vars, and health-check notes: [docs/local-development.md](docs/local-development.md).
+
+## Layout (skeleton through Step 4)
 
 | Path | Role |
 |------|------|
-| `pipeline/` | Dagster assets, extraction, loading (placeholder packages). |
-| `api/` | FastAPI application code (placeholder). |
-| `schemas/` | JSON Schema stubs for YAML contracts (expanded in Step 2). |
-| `scripts/` | CLI and validation scripts (stubs). |
-| `docs/` | In-repo developer notes; canonical plans live under `_planning/`. |
+| `pipeline/` | Definitions loader, validation, minimal `dagster_defs` shell for Compose. |
+| `api/` | FastAPI app shell (`api/app.py`) with `GET /healthz`. |
+| `schemas/` | JSON Schema contracts for YAML (`repo.yml`, datasets, API endpoints, definitions manifest). |
+| `scripts/` | CLI and validation (`scripts/validate_definitions.py`). |
+| `docs/` | Developer notes (e.g. local Compose); canonical plans live under `_planning/`. |
+| `examples/` | Sample definition repo tree and `definitions*.yml` manifests. |
+| `docker-compose.yml` | Local runtime: `postgres`, `minio`, `dagster`, `api`. |
 | `infra/aws/` | Future Terraform / AWS reference (Step 17). |
-| `.github/workflows/` | CI placeholders. |
+| `.github/workflows/` | CI: Python tests, fixture validation, `docker compose config` (no image pull). |
+
+## Python extras
+
+- **`pip install ".[dev]"`** — PyYAML, jsonschema, pytest (definition validation and unit tests).
+- **`pip install ".[compose]"`** — Dagster webserver, FastAPI, uvicorn, plus PyYAML/jsonschema (matches the application image install).
 
 ## Source-of-truth documents
 
@@ -39,7 +48,7 @@ Planning files live in the shared **`_planning/`** folder of the multi-repo work
 
 ## Status
 
-**Step 1** of the master plan: repository skeleton, packaging metadata, license, Docker/Compose placeholders, and empty `pipeline` / `api` packages. Runtime services (Postgres, MinIO, Dagster, API) and the definitions loader are **not** implemented yet; follow the master plan for upcoming steps.
+**Step 4** of the master plan: local **Docker Compose** (PostGIS, MinIO, Dagster and API shells), `.env.example`, CI `docker compose config`, and [docs/local-development.md](docs/local-development.md). Asset factory, full API routes, and production AWS wiring are **not** implemented yet; follow the master plan for upcoming steps.
 
 ## Contributing
 

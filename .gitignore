@@ -11,3 +11,4 @@ venv/
 .pytest_git_probe*/
 .mypy_cache/
 .ruff_cache/
+.env
