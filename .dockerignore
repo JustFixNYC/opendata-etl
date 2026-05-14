@@ -16,3 +16,4 @@ htmlcov
 .coverage
 coverage.xml
 .env
+.tmp_dagster_home*

@@ -12,3 +12,6 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .env
+
+# Dagster `dagster dev` ephemeral home dirs (random suffix) when not using a fixed DAGSTER_HOME
+.tmp_dagster_home*/
