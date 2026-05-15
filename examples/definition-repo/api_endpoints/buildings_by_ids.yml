@@ -2,7 +2,7 @@ path: /fixture/buildings-by-ids
 method: GET
 description: |
   Fixture demonstrating ``integer_list`` query params bound from repeated keys
-  (``?building_id=1&building_id=2``). SQL execution is stubbed until Step 11.
+  (``?building_id=1&building_id=2``). Requires ``OPENDATA_API_ROLE_DSNS`` and DB tables for execution.
 params:
   - name: building_id
     type: integer_list

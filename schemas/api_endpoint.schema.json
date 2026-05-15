@@ -45,6 +45,13 @@
         "format": {
           "type": "string",
           "enum": ["json", "geojson", "csv"]
+        },
+        "geometry_column": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "When format is geojson, result column containing a GeoJSON geometry object or JSON string (e.g. ST_AsGeoJSON(geom)::json AS geom)."
         }
       }
     },

@@ -51,6 +51,12 @@ def test_opendata_auth_schema_present() -> None:
     assert 'CREATE SCHEMA IF NOT EXISTS "opendata_auth"' in sql
 
 
+def test_api_keys_table_in_provisioning_sql() -> None:
+    deployment = load_deployment_manifest(REPO_ROOT / "examples" / "definitions.local.yml")
+    sql = "\n".join(provision_sql_statements(deployment))
+    assert 'CREATE TABLE IF NOT EXISTS "opendata_auth"."api_keys"' in sql
+
+
 def test_provision_sql_stable_idempotent_shape() -> None:
     deployment = load_deployment_manifest(REPO_ROOT / "examples" / "definitions.prod.yml")
     a = provision_sql_statements(deployment)

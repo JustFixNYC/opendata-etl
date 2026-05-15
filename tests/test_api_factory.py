@@ -40,10 +40,8 @@ def test_integer_list_repeated_keys_accepted(example_load_result) -> None:
     register_yaml_endpoints(app, example_load_result)
     client = TestClient(app)
     r = client.get("/fixture/buildings-by-ids", params=[("building_id", "1"), ("building_id", "2")])
-    assert r.status_code == 200
-    body = r.json()
-    assert body["meta"]["mode"] == "placeholder"
-    assert body["meta"]["params"]["building_id"] == [1, 2]
+    assert r.status_code == 503
+    assert r.json()["detail"]["error"] == "database_pool_unconfigured"
 
 
 def test_integer_list_validation_rejects_non_int(example_load_result) -> None:
@@ -75,5 +73,15 @@ def test_scalar_happy_path(example_load_result) -> None:
     register_yaml_endpoints(app, example_load_result)
     client = TestClient(app)
     r = client.get("/buildings/by-id", params={"building_id": 42})
-    assert r.status_code == 200
-    assert r.json()["meta"]["params"]["building_id"] == 42
+    assert r.status_code == 503
+    assert r.json()["detail"]["error"] == "database_pool_unconfigured"
+
+
+def test_openapi_mentions_roles(example_load_result) -> None:
+    app = FastAPI()
+    register_yaml_endpoints(app, example_load_result)
+    client = TestClient(app)
+    spec = client.get("/openapi.json").json()
+    desc = spec["paths"]["/buildings/by-id"]["get"]["description"]
+    assert "Roles that may execute" in desc
+    assert "opendata_public_read" in desc

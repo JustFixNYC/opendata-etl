@@ -3,19 +3,33 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import FastAPI, Request, Response
+import psycopg
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ValidationError
+from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.datastructures import QueryParams
+from starlette.responses import StreamingResponse
 
-from pipeline.definitions import DefinitionsLoadResult, LoadedDefinitionRepo
-from pipeline.validation import load_yaml
-
+from api.access import SchemaAccessModel, build_schema_access_model
+from api.auth_keys import parse_api_key_header, roles_for_bearer
 from api.params import build_endpoint_query_model, validate_param_extras
+from api.query_runner import execute_sql_json, iter_csv_lines, rows_to_geojson_features
+from api.sql_check import (
+    EndpointSqlAnalysis,
+    SqlValidationError,
+    analyze_endpoint_sql,
+    colon_placeholders_to_psycopg,
+    verify_params_match_sql,
+)
+from pipeline.definitions import DefinitionsLoadResult, LoadedDefinitionRepo
+from pipeline.provisioning import PUBLIC_READ_ROLE
+from pipeline.validation import load_yaml
 
 
 def _safe_identifier(s: str) -> str:
@@ -25,7 +39,18 @@ def _safe_identifier(s: str) -> str:
     return out
 
 
-def _openapi_description(repo: LoadedDefinitionRepo, doc: dict[str, Any], rel_path: str) -> str:
+def _keys_lookup_dsn() -> str | None:
+    return (os.environ.get("OPENDATA_API_KEYS_LOOKUP_DSN") or os.environ.get("DATABASE_URL") or "").strip() or None
+
+
+def _openapi_description(
+    repo: LoadedDefinitionRepo,
+    doc: dict[str, Any],
+    rel_path: str,
+    *,
+    analysis: EndpointSqlAnalysis,
+    roles_for_route: frozenset[str],
+) -> str:
     parts: list[str] = []
     desc = doc.get("description")
     if isinstance(desc, str) and desc.strip():
@@ -34,34 +59,22 @@ def _openapi_description(repo: LoadedDefinitionRepo, doc: dict[str, Any], rel_pa
         f"**Definition repo:** `{repo.name}` · **Postgres schema:** `{repo.schema}` · **Source file:** `{rel_path}`"
     )
     parts.append(
-        "Execution is **stubbed** (no DB round-trip) until Step 11 wires per-role pools, SQL validation, and real query execution."
+        f"**Referenced Postgres schemas (static):** `{', '.join(sorted(analysis.referenced_schemas))}`"
+    )
+    parts.append(
+        f"**Roles that may execute this SQL:** `{', '.join(sorted(roles_for_route))}` "
+        f"(anonymous clients use `{PUBLIC_READ_ROLE}` only)."
+    )
+    anon_ok = PUBLIC_READ_ROLE in roles_for_route
+    parts.append(
+        "**Anonymous access:** "
+        + ("allowed when pools are configured." if anon_ok else "not allowed — use an API key whose `roles[]` grants a role listed above.")
+    )
+    parts.append(
+        "List-typed params (`integer_list`, …) bind as a single Postgres array parameter; "
+        "use patterns such as ``WHERE col = ANY(:name)`` or ``FROM unnest(:name) AS x(v)`` in SQL."
     )
     return "\n\n".join(parts)
-
-
-def _placeholder_payload(
-    *,
-    repo: LoadedDefinitionRepo,
-    rel_path: str,
-    doc: dict[str, Any],
-    params: dict[str, Any],
-) -> dict[str, Any]:
-    output = doc.get("output") or {}
-    fmt = output.get("format", "json") if isinstance(output, dict) else "json"
-    sql = str(doc.get("sql", ""))
-    return {
-        "data": None,
-        "meta": {
-            "mode": "placeholder",
-            "definition_repo": repo.name,
-            "schema": repo.schema,
-            "endpoint_file": rel_path,
-            "output_format": fmt,
-            "statement_timeout_seconds": doc.get("statement_timeout_seconds"),
-            "params": params,
-            "sql_char_length": len(sql),
-        },
-    }
 
 
 def raw_query_dict_from_specs(qp: QueryParams, param_specs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -184,8 +197,10 @@ def register_yaml_endpoints(app: FastAPI, load_result: DefinitionsLoadResult) ->
     Raises
     ------
     ValueError
-        On duplicate ``(path, method)`` or invalid endpoint document shape.
+        On duplicate ``(path, method)``, invalid endpoint document shape, or failed SQL validation.
     """
+    access_model = build_schema_access_model(load_result)
+
     seen: set[tuple[str, str]] = set()
     count = 0
     for repo in load_result.repos:
@@ -206,11 +221,36 @@ def register_yaml_endpoints(app: FastAPI, load_result: DefinitionsLoadResult) ->
             if not isinstance(raw_params, list):
                 raise ValueError(f"{repo.name}/{rel}: params must be a list")
 
+            output = doc.get("output") or {}
+            if not isinstance(output, dict):
+                raise ValueError(f"{repo.name}/{rel}: output must be an object")
+            fmt = str(output.get("format", "json"))
+            if fmt == "geojson":
+                gc = output.get("geometry_column")
+                if not isinstance(gc, str) or not gc.strip():
+                    raise ValueError(
+                        f"{repo.name}/{rel}: output.format geojson requires output.geometry_column (Postgres column alias)"
+                    )
+
+            sql_text = str(doc.get("sql", ""))
+            try:
+                analysis = analyze_endpoint_sql(sql_text, default_schema=repo.schema)
+                verify_params_match_sql(param_specs=raw_params, analysis=analysis)
+                roles_for_route = access_model.roles_for_endpoint(analysis.referenced_schemas)
+            except SqlValidationError as e:
+                raise ValueError(f"{repo.name}/{rel}: {e}") from e
+            except ValueError as e:
+                raise ValueError(f"{repo.name}/{rel}: {e}") from e
+
+            psycopg_sql = colon_placeholders_to_psycopg(sql_text)
+
             file_stem = Path(rel).stem
             model_name = f"Query__{_safe_identifier(repo.name)}__{_safe_identifier(file_stem)}"
             query_model = build_endpoint_query_model(model_name, raw_params)
 
-            description = _openapi_description(repo, doc, rel)
+            description = _openapi_description(
+                repo, doc, rel, analysis=analysis, roles_for_route=roles_for_route
+            )
             summary_src = doc.get("description")
             summary = (
                 str(summary_src).split("\n", 1)[0][:120]
@@ -226,6 +266,13 @@ def register_yaml_endpoints(app: FastAPI, load_result: DefinitionsLoadResult) ->
                 doc=doc,
                 stem=file_stem,
                 http_method=method,
+                access_model=access_model,
+                analysis=analysis,
+                psycopg_sql=psycopg_sql,
+                roles_for_route=roles_for_route,
+                geometry_column=str(output["geometry_column"]).strip()
+                if fmt == "geojson"
+                else None,
             )
 
             tag = f"{repo.name} ({repo.schema})"
@@ -237,7 +284,7 @@ def register_yaml_endpoints(app: FastAPI, load_result: DefinitionsLoadResult) ->
                 tags=[tag],
                 summary=summary,
                 description=description,
-                response_description="JSON placeholder envelope until Step 11 executes SQL.",
+                response_description="JSON, GeoJSON, or CSV (see output.format in the YAML endpoint).",
                 name=f"{repo.name}__{file_stem}",
                 response_model=None,
                 openapi_extra={"parameters": openapi_params},
@@ -256,7 +303,17 @@ def _make_query_handler(
     doc: dict[str, Any],
     stem: str,
     http_method: str,
+    access_model: SchemaAccessModel,
+    analysis: EndpointSqlAnalysis,
+    psycopg_sql: str,
+    roles_for_route: frozenset[str],
+    geometry_column: str | None,
 ) -> Callable[..., Any]:
+    output = doc.get("output") or {}
+    fmt = str(output.get("format", "json")) if isinstance(output, dict) else "json"
+    timeout_s = doc.get("statement_timeout_seconds")
+    timeout_ms = int(float(timeout_s) * 1000) if timeout_s is not None else None
+
     async def _handler(request: Request) -> Any:
         raw = raw_query_dict_from_specs(request.query_params, param_specs)
         try:
@@ -276,15 +333,127 @@ def _make_query_handler(
                 ],
                 body=None,
             ) from ex
-        payload = _placeholder_payload(
-            repo=repo,
-            rel_path=rel_path,
-            doc=doc,
-            params=query.model_dump(exclude_none=True),
+
+        params = query.model_dump(exclude_none=True)
+        pool_manager = getattr(request.app.state, "pool_manager", None)
+
+        bearer = parse_api_key_header(request.headers.get("Authorization"))
+        keys_dsn = _keys_lookup_dsn()
+
+        key_roles: tuple[str, ...] | None = None
+        if bearer:
+            if not keys_dsn:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": "api_keys_lookup_unconfigured",
+                        "message": "Set OPENDATA_API_KEYS_LOOKUP_DSN or DATABASE_URL to verify API keys.",
+                    },
+                )
+            try:
+
+                def _load_roles() -> tuple[str, ...] | None:
+                    with psycopg.connect(keys_dsn) as conn:
+                        with conn.cursor() as cur:
+                            return roles_for_bearer(cur, bearer=bearer)
+
+                key_roles = await run_in_threadpool(_load_roles)
+            except psycopg.Error as e:
+                raise HTTPException(
+                    status_code=503,
+                    detail={"error": "api_keys_db_error", "message": str(e)},
+                ) from e
+            if key_roles is None:
+                raise HTTPException(status_code=401, detail={"error": "invalid_api_key"})
+            if not key_roles:
+                raise HTTPException(status_code=403, detail={"error": "api_key_no_roles"})
+
+        chosen = access_model.choose_pool_role(
+            referenced_schemas=analysis.referenced_schemas,
+            anonymous=bearer is None,
+            key_roles=key_roles,
         )
+        if chosen is None:
+            if bearer is None:
+                raise HTTPException(
+                    status_code=401,
+                    detail={
+                        "error": "authentication_required",
+                        "message": "This endpoint touches schemas not exposed to anonymous clients.",
+                    },
+                )
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "insufficient_role", "message": "API key roles cannot execute this SQL."},
+            )
+
+        if pool_manager is None or pool_manager.pool_for(chosen) is None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "database_pool_unconfigured",
+                    "message": (
+                        f"Missing connection pool for role {chosen!r}. "
+                        "Set OPENDATA_API_ROLE_DSNS JSON mapping role names to libpq URIs."
+                    ),
+                },
+            )
+
         if http_method == "HEAD":
             return Response(status_code=200)
-        return payload
+
+        pool = pool_manager.pool_for(chosen)
+        assert pool is not None
+
+        def _run_sql() -> tuple[list[dict[str, Any]], float]:
+            with pool.connection() as conn:
+                return execute_sql_json(
+                    conn=conn,
+                    repo_schema=repo.schema,
+                    psycopg_sql=psycopg_sql,
+                    params=params,
+                    statement_timeout_ms=timeout_ms,
+                )
+
+        try:
+            rows, elapsed_ms = await run_in_threadpool(_run_sql)
+        except psycopg.Error as e:
+            raise HTTPException(
+                status_code=500,
+                detail={"error": "query_execution_failed", "message": str(e)},
+            ) from e
+
+        meta = {
+            "definition_repo": repo.name,
+            "schema": repo.schema,
+            "endpoint_file": rel_path,
+            "output_format": fmt,
+            "row_count": len(rows),
+            "elapsed_ms": round(elapsed_ms, 3),
+            "executed_as_role": chosen,
+            "referenced_schemas": sorted(analysis.referenced_schemas),
+        }
+
+        if fmt == "json":
+            return {"data": rows, "meta": meta}
+        if fmt == "geojson":
+            assert geometry_column is not None
+            try:
+                body = rows_to_geojson_features(rows, geometry_column=geometry_column)
+            except (ValueError, TypeError, KeyError) as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail={"error": "geojson_build_failed", "message": str(e)},
+                ) from e
+            return {"data": body, "meta": meta}
+        if fmt == "csv":
+            return StreamingResponse(
+                iterate_in_threadpool(iter_csv_lines(rows)),
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'},
+            )
+
+        raise HTTPException(status_code=500, detail={"error": "unknown_output_format", "message": fmt})
 
     _handler.__name__ = f"opendata_ep__{_safe_identifier(repo.name)}__{_safe_identifier(stem)}"
     return _handler

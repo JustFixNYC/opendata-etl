@@ -44,7 +44,7 @@ def provision_sql_statements(
     stmts.append(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(AUTH_SCHEMA)}")
     stmts.append(
         f"COMMENT ON SCHEMA {quote_ident(AUTH_SCHEMA)} IS "
-        f"'Reserved for API keys / auth (framework Step 11); tables not created yet.'"
+        "'API auth metadata (``opendata_auth.api_keys``); not readable by public read roles.'"
     )
     stmts.append(f"REVOKE ALL ON SCHEMA {quote_ident(AUTH_SCHEMA)} FROM PUBLIC")
 
@@ -117,6 +117,26 @@ def provision_sql_statements(
             stmts.append(f"GRANT {rr} TO {pub}")
         else:
             stmts.append(f"REVOKE {rr} FROM {pub}")
+
+    sch_a = quote_ident(AUTH_SCHEMA)
+    tbl_keys = quote_ident("api_keys")
+    stmts.append(
+        f"CREATE TABLE IF NOT EXISTS {sch_a}.{tbl_keys} ("
+        "key_id text PRIMARY KEY,"
+        "key_hash bytea NOT NULL,"
+        "label text NOT NULL,"
+        "owner_email text,"
+        "roles text[] NOT NULL,"
+        "is_active boolean NOT NULL DEFAULT true,"
+        "created_at timestamptz NOT NULL DEFAULT now()"
+        ")"
+    )
+    stmts.append(
+        f"COMMENT ON TABLE {sch_a}.{tbl_keys} IS "
+        "'FastAPI API keys (bcrypt hashes); managed by scripts/issue_api_key.py.'"
+    )
+    stmts.append(f"REVOKE ALL ON TABLE {sch_a}.{tbl_keys} FROM PUBLIC")
+    stmts.append(f"ALTER TABLE {sch_a}.{tbl_keys} OWNER TO {owner_q}")
 
     return stmts
 
