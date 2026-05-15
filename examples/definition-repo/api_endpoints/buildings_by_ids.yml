@@ -1,0 +1,18 @@
+path: /fixture/buildings-by-ids
+method: GET
+description: |
+  Fixture demonstrating ``integer_list`` query params bound from repeated keys
+  (``?building_id=1&building_id=2``). SQL execution is stubbed until Step 11.
+params:
+  - name: building_id
+    type: integer_list
+    required: true
+    min: 1
+    max: 999999999
+    description: Repeat this query key once per id (e.g. ``?building_id=1&building_id=2``).
+output:
+  format: json
+sql: |
+  SELECT b.building_id, b.name
+  FROM bundle_demo__buildings b
+  WHERE b.building_id = ANY(:building_id)

@@ -23,12 +23,12 @@ Services:
 | `postgres` | PostgreSQL 16 + PostGIS (`postgis/postgis:16-3.4`). |
 | `minio`    | S3-compatible landing zone. Console on host port `MINIO_CONSOLE_PORT` (default 9001). |
 | `dagster`  | `dagster dev` with skeleton dataset assets from `pipeline.factory` (`pipeline.dagster_defs`). |
-| `api`      | FastAPI shell with `GET /healthz` only (no DB probe until connection pools exist). |
+| `api`      | FastAPI read-only API: YAML-driven routes from loaded definition repos (Step 10); query execution is stubbed until Step 11. |
 
 **Blockers / placeholders (Step 4+):**
 
 - Dagster assets include **skeleton dataset tables** (Steps 6–8) plus **dbt models** when a definition repo contains `models/dbt_project.yml` and `dbt parse` succeeds at definition load time (Step 9). Install `dbt` on the host or use the project Docker image (`.[compose]` includes `dbt-core` + `dbt-postgres` + `dagster-dbt`).
-- The API does not load `api_endpoints/*.yml` yet (Steps 10–11).
+- The API registers routes from ``api_endpoints/*.yml`` (Step 10); SQL is not executed until Step 11 (per-role pools + validation).
 - Create the MinIO bucket named in `S3_BUCKET` (default `opendata-landing`) before extractors write objects; Compose does not auto-create it.
 
 ## Environment variables
@@ -38,7 +38,7 @@ Copy `.env.example` to `.env` and adjust. Compose injects paths used by later st
 - `OPENDATA_DEFINITIONS_MANIFEST_PATH` — path to `definitions.yml` **inside the container** (image includes `examples/`).
 - `OPENDATA_DEFINITIONS_WORK_DIR` — writable clone target passed as `work_dir` to `load_definitions`.
 - **Host-only `dagster dev`:** if `.env` still has Compose defaults like `/workspace/examples/definitions.local.yml` and that path does not exist on your machine, `pipeline.factory` **falls back** to `examples/definitions.local.yml` and `data/definitions_work` under the repo root (with a `UserWarning`). Prefer unsetting those two vars or setting them to real host paths when running outside Docker.
-- `OPENDATA_DAGSTER_DEFINITION_LOAD` — `auto` (default in code when unset), `clone`, or `embedded`. With `examples/definitions.local.yml`, the placeholder HTTPS URL fails git clone, so **`auto` falls back** to the checked-in `examples/definition-repo` and you still see assets locally. Use `file://` remotes plus real refs (or `embedded`) when you want deterministic behavior without a warning.
+- `OPENDATA_DAGSTER_DEFINITION_LOAD` — `auto` (default in code when unset), `clone`, or `embedded`. With `examples/definitions.local.yml`, the placeholder HTTPS URL fails git clone, so **`auto` falls back** to the checked-in `examples/definition-repo` and you still see Dagster assets and **API routes** locally. The API uses the same resolver (`resolve_definitions_load_result`). Use `file://` remotes plus real refs (or `embedded`) when you want deterministic behavior without a warning.
 - **dbt (Step 9):** set `DBT_PROFILES_DIR` to the directory containing `profiles.yml` (default in Compose: `examples/definition-repo/models/dbt_profile` inside the image). Set `DBT_TARGET_SCHEMA` to the deployment row’s `definitions[].schema` when it differs from the profile default (`ex_housing` for the example). Run `dbt parse` / `dbt run` from `examples/definition-repo/models` or use Dagster’s dbt assets (same vars). The example model `sample_rows_summary` reads `sample_csv.rows`; load that table with the framework loader before `dbt run`.
 
 **Cross-schema reads (dbt and SQL):** `depends_on` in `definitions.yml` orders repos only. Database `SELECT` on another repo’s schema requires **`cross_repo_grants`** with `access: read` on the foreign `schema`; `scripts/provision_roles.py` applies those grants to each repo’s `opendata_<schema>_read` role. If dbt runs as the table owner (`DATABASE_URL` in dev), Postgres already allows reads; if you introduce a dedicated dbt login later, grant it the same way provision grants read roles (and document the role alongside `cross_repo_grants`).
