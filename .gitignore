@@ -6,12 +6,25 @@ __pycache__/
 dist/
 build/
 .venv/
+.venv-ci/
 venv/
 .pytest_cache/
 .pytest_git_probe*/
 .mypy_cache/
 .ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
 .env
+.DS_Store
+
+# Local definitions loader checkouts (do not commit cloned repos)
+data/definitions_work/
 
 # Dagster `dagster dev` ephemeral home dirs (random suffix) when not using a fixed DAGSTER_HOME
 .tmp_dagster_home*/
+
+# dbt (any definition repo using `models/` as project root per contract)
+**/models/target/
+**/models/dbt_packages/
+**/models/logs/

@@ -1,19 +1,42 @@
+# Git / CI (not needed in image build context)
 .git
 .github
+
+# Tests and local tooling
 tests
 **/__pycache__
 **/*.pyc
 .pytest_cache
+.pytest_git_probe*
 .mypy_cache
 .ruff_cache
 .cursor
-*.egg-info
+
+# Virtualenvs
 .venv
+.venv-ci
 venv
+
+# Build / packaging / coverage
+*.egg-info
+.eggs
 dist
 build
 htmlcov
 .coverage
 coverage.xml
+
+# Secrets and ephemeral app state
 .env
 .tmp_dagster_home*
+
+# Docs not copied by Dockerfile (smaller build context)
+docs
+
+# Definitions loader working directory on developer machines
+data
+
+# dbt artifacts under definition-repo `models/` trees
+**/models/target
+**/models/dbt_packages
+**/models/logs
