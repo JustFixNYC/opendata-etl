@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copy or symlink to ~/.dbt/profiles.yml, or set DBT_PROFILES_DIR to this directory.
+# Connection values default to local Compose Postgres; override with env vars.
+opendata_etl_example:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', '127.0.0.1') }}"
+      user: "{{ env_var('POSTGRES_USER', 'opendata') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'opendata') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'opendata') }}"
+      schema: "{{ env_var('DBT_TARGET_SCHEMA', 'ex_housing') }}"
+      threads: 4

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import textwrap
+import shutil
 from pathlib import Path
 
 import pytest
@@ -212,3 +213,7 @@ def test_dagster_definitions_non_empty() -> None:
     assert len(defs.get_repository_def().assets_defs_by_key) >= 4
     ak = AssetKey(["example_collection", "ex_housing", "sample_csv", "rows"])
     assert ak in defs.get_repository_def().assets_defs_by_key
+    if shutil.which("dbt"):
+        pytest.importorskip("dagster_dbt")
+        dbt_model = AssetKey(["example_collection", "ex_housing", "dbt", "sample_rows_summary"])
+        assert dbt_model in defs.get_repository_def().assets_defs_by_key

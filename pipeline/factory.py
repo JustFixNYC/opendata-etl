@@ -315,8 +315,13 @@ def resolve_definitions_load_result(
         return embedded_example_load_result(root)
 
 
-def dagster_definitions_from_load_result(load_result: DefinitionsLoadResult) -> Any:
+def dagster_definitions_from_load_result(
+    load_result: DefinitionsLoadResult,
+    *,
+    repo_root: Path | None = None,
+) -> Any:
     """Turn a :class:`DefinitionsLoadResult` into :class:`dagster.Definitions` (requires Dagster)."""
+    root = repo_root.resolve() if repo_root is not None else _REPO_ROOT
     try:
         from dagster import AssetKey, Definitions, asset
     except ImportError as e:  # pragma: no cover
@@ -356,6 +361,13 @@ def dagster_definitions_from_load_result(load_result: DefinitionsLoadResult) -> 
         )(_make_compute_fn(spec))
         assets.append(decorated)
 
+    from pipeline.opendata_dbt import collect_dbt_assets_and_resources
+
+    dbt_assets_list, dbt_resources = collect_dbt_assets_and_resources(load_result.repos, repo_root=root)
+    assets.extend(dbt_assets_list)
+
+    if dbt_resources:
+        return Definitions(assets=assets, resources=dbt_resources)
     return Definitions(assets=assets)
 
 
@@ -370,4 +382,4 @@ def build_dagster_definitions(
     manifest = _resolve_manifest_for_dagster(repo_root=root, manifest_path=manifest_path)
     work = _resolve_work_dir_for_dagster(repo_root=root, work_dir=work_dir)
     load_result = resolve_definitions_load_result(manifest_path=manifest, work_dir=work, repo_root=root)
-    return dagster_definitions_from_load_result(load_result)
+    return dagster_definitions_from_load_result(load_result, repo_root=root)

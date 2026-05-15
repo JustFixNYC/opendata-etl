@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# dbt project root for the example definition repo (see docs/local-development.md).
+name: example_collection
+version: "1.0.0"
+config-version: 2
+profile: opendata_etl_example
+
+model-paths: [models]
+test-paths: [tests]
+
+target-path: target
+clean-targets:
+  - target
+  - dbt_packages
+
+vars:
+  target_schema: ex_housing
+
+models:
+  example_collection:
+    +materialized: table

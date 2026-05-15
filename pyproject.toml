@@ -27,10 +27,17 @@ dev = [
   "boto3>=1.34.0",
   "requests>=2.31.0",
   "moto[s3]>=5.0.0",
+  "dagster==1.13.4",
+  "dagster-dbt==0.29.4",
+  "dbt-core>=1.8,<1.12",
+  "dbt-postgres>=1.8,<1.12",
 ]
 compose = [
   "dagster==1.13.4",
   "dagster-webserver==1.13.4",
+  "dagster-dbt==0.29.4",
+  "dbt-core>=1.8,<1.12",
+  "dbt-postgres>=1.8,<1.12",
   "fastapi>=0.115.6,<0.116",
   "uvicorn[standard]>=0.32.0,<0.33",
   "PyYAML>=6.0.1",

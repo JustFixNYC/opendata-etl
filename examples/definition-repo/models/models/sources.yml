@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+version: 2
+
+sources:
+  - name: sample_csv
+    description: "Loaded by opendata-etl from datasets/sample_csv.yml (table name: rows)."
+    schema: "{{ var('target_schema') }}"
+    tables:
+      - name: rows
+        description: "Raw rows from the sample_csv dataset (see loader table naming)."
