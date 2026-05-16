@@ -5,6 +5,7 @@ __pycache__/
 .eggs/
 dist/
 build/
+site/
 .venv/
 .venv-ci/
 venv/
@@ -23,6 +24,9 @@ data/definitions_work/
 
 # Dagster `dagster dev` ephemeral home dirs (random suffix) when not using a fixed DAGSTER_HOME
 .tmp_dagster_home*/
+
+# MkDocs: aggregated definition-repo docs + generated reference (see scripts/aggregate_docs.py, gen_docs.py)
+docs/generated/
 
 # dbt (any definition repo using `models/` as project root per contract)
 **/models/target/

@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Build aggregated MkDocs and publish to GitHub Pages on pushes to `main`.
+# Requires: Repository Settings → Pages → Build and deployment → Source: GitHub Actions.
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python3 -m pip install ".[dev,docs]"
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      - name: Generate aggregated docs
+        env:
+          DBT_PROFILES_DIR: ${{ github.workspace }}/examples/definition-repo/models/dbt_profile
+          DBT_TARGET_SCHEMA: ex_housing
+        run: |
+          python3 scripts/aggregate_docs.py --mode embedded
+          python3 scripts/gen_docs.py --mode embedded
+      - name: MkDocs build (strict)
+        run: python3 -m mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

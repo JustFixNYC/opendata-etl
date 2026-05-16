@@ -28,7 +28,7 @@ Local and CI environments should use **pinned git revisions** for each definitio
 | `api/` | FastAPI app shell (`api/app.py`) with `GET /healthz`. |
 | `schemas/` | JSON Schema contracts for YAML (`repo.yml`, datasets, API endpoints, definitions manifest). |
 | `scripts/` | CLI and validation (`scripts/validate_definitions.py`). |
-| `docs/` | Developer notes (e.g. local Compose); canonical plans live under `_planning/`. |
+| `docs/` | MkDocs Material site (`mkdocs.yml`); run `aggregate_docs.py` + `gen_docs.py` before `mkdocs build`. |
 | `examples/` | Sample definition repo tree and `definitions*.yml` manifests. |
 | `docker-compose.yml` | Local runtime: `postgres`, `minio`, `dagster`, `api`. |
 | `infra/aws/` | Future Terraform / AWS reference (Step 17). |
@@ -37,6 +37,7 @@ Local and CI environments should use **pinned git revisions** for each definitio
 ## Python extras
 
 - **`pip install ".[dev]"`** — PyYAML, jsonschema, pytest (definition validation and unit tests).
+- **`pip install ".[docs]"`** — MkDocs and Material theme (aggregated documentation site).
 - **`pip install ".[compose]"`** — Dagster webserver, FastAPI, uvicorn, plus PyYAML/jsonschema (matches the application image install).
 
 ## Source-of-truth documents
@@ -48,7 +49,7 @@ Planning files live in the shared **`_planning/`** folder of the multi-repo work
 
 ## Status
 
-**Step 4–6** of the master plan: local **Docker Compose** (PostGIS, MinIO, Dagster and API shells), `.env.example`, CI `docker compose config`, skeleton **Dagster dataset assets** from YAML (`pipeline.factory` / `pipeline.dagster_defs`), and [docs/local-development.md](docs/local-development.md). Full extract/load, API routes from YAML, and production AWS wiring are **not** implemented yet; follow the master plan for upcoming steps.
+Follow the [master plan](docs/index.md) in `_planning/` for current milestones. The repo includes Docker Compose, the definitions loader, extract/load, dbt and API factories, monitoring, and an **MkDocs Material** documentation build (`mkdocs.yml`, `scripts/aggregate_docs.py`, `scripts/gen_docs.py`) with optional GitHub Pages deployment.
 
 ## Contributing
 

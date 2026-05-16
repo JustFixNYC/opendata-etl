@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+site_name: opendata-etl
+site_description: Framework docs with aggregated definition-repository pages and generated reference stubs.
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.expand
+    - navigation.sections
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  # Sub-pages under generated/ are produced by scripts/aggregate_docs.py and gen_docs.py.
+  # When new definition repos ship docs, add entries here (or automate nav generation).
+  - Home: index.md
+  - Local development: local-development.md
+  - Definition repo docs:
+      - Overview: generated/definition_repos/index.md
+      - example_collection: generated/definition_repos/example_collection/index.md
+  - Generated reference:
+      - Overview: generated/reference/index.md
+      - example_collection:
+          - dbt: generated/reference/example_collection/dbt.md
+          - Dataset skeleton: generated/reference/example_collection/dagster_skeleton.md
+
+extra:
+  generator: false
+
+strict: true

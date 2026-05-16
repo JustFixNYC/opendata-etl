@@ -38,6 +38,10 @@ dev = [
   "dbt-core>=1.8,<1.12",
   "dbt-postgres>=1.8,<1.12",
 ]
+docs = [
+  "mkdocs-material>=9.5.0,<10",
+]
+
 compose = [
   "dagster==1.13.4",
   "dagster-webserver==1.13.4",

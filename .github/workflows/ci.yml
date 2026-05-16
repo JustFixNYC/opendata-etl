@@ -50,6 +50,15 @@ jobs:
         run: python3 -m pytest -q
       - name: Run example fixture validation
         run: python3 scripts/validate_definitions.py --examples-default
+      - name: Build MkDocs (strict)
+        env:
+          DBT_PROFILES_DIR: ${{ github.workspace }}/examples/definition-repo/models/dbt_profile
+          DBT_TARGET_SCHEMA: ex_housing
+        run: |
+          python3 -m pip install 'mkdocs-material>=9.5.0,<10'
+          python3 scripts/aggregate_docs.py --mode embedded
+          python3 scripts/gen_docs.py --mode embedded
+          python3 -m mkdocs build --strict
       - name: Cross-check named credentials for example_collection
         run: python3 scripts/validate_definitions.py --repo examples/definition-repo --deployment examples/definitions.local.yml --check-credentials
       - name: Validate Docker Compose file (no image pull)
