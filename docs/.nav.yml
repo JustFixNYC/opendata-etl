@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Site navigation for MkDocs (mkdocs-awesome-nav v3). With awesome-nav enabled, `nav` in mkdocs.yml is ignored;
+# keep ordering and globs here. Paths are relative to the docs/ directory.
+#
+# Repo folders under docs/generated/ are produced only after `aggregate_docs.py` and `gen_docs.py`. Globs pick up
+# any `definitions[].name` without editing this file. Subtrees sort by path/filename (natural order).
+nav:
+  - Home: index.md
+  - Local development: local-development.md
+  - Definition repo docs:
+      - Overview: generated/definition_repos/index.md
+      - glob: "generated/definition_repos/*/"
+        sort:
+          by: filename
+          type: natural
+          direction: asc
+  - Generated reference:
+      - Overview: generated/reference/index.md
+      - glob: "generated/reference/*/"
+        sort:
+          by: filename
+          type: natural
+          direction: asc

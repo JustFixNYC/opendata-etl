@@ -55,7 +55,7 @@ jobs:
           DBT_PROFILES_DIR: ${{ github.workspace }}/examples/definition-repo/models/dbt_profile
           DBT_TARGET_SCHEMA: ex_housing
         run: |
-          python3 -m pip install 'mkdocs-material>=9.5.0,<10'
+          python3 -m pip install ".[docs]"
           python3 scripts/aggregate_docs.py --mode embedded
           python3 scripts/gen_docs.py --mode embedded
           python3 -m mkdocs build --strict

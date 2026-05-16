@@ -23,4 +23,6 @@ python scripts/gen_docs.py --mode embedded
 mkdocs build --strict
 ```
 
+Navigation for **`docs/generated/`** is driven by **`docs/.nav.yml`** (**mkdocs-awesome-nav**), not by per-repository entries in `mkdocs.yml`. If aggregation output paths change, adjust those globs.
+
 Use `--mode clone` with `--deployment` and `--work-dir` to aggregate real git checkouts (same as `pipeline.definitions.load_definitions`).

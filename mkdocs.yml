@@ -27,19 +27,10 @@ markdown_extensions:
   - toc:
       permalink: true
 
-nav:
-  # Sub-pages under generated/ are produced by scripts/aggregate_docs.py and gen_docs.py.
-  # When new definition repos ship docs, add entries here (or automate nav generation).
-  - Home: index.md
-  - Local development: local-development.md
-  - Definition repo docs:
-      - Overview: generated/definition_repos/index.md
-      - example_collection: generated/definition_repos/example_collection/index.md
-  - Generated reference:
-      - Overview: generated/reference/index.md
-      - example_collection:
-          - dbt: generated/reference/example_collection/dbt.md
-          - Dataset skeleton: generated/reference/example_collection/dagster_skeleton.md
+# Navigation lives in docs/.nav.yml (mkdocs-awesome-nav v3 ignores `nav` here).
+plugins:
+  - search
+  - awesome-nav
 
 extra:
   generator: false

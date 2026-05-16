@@ -21,4 +21,6 @@ python scripts/gen_docs.py --mode embedded
 mkdocs build --strict
 ```
 
+Sidebar entries under **`generated/`** come from **`docs/.nav.yml`** (MkDocs **awesome-nav**). New definition repos appear automatically after you re-run the two scripts; if you change how paths are laid out under `docs/generated/`, update the globs there.
+
 The `embedded` mode uses the checked-in `examples/definition-repo` tree (no git clone). For manifests that use real git URLs, use `--mode clone` with `--deployment` and `--work-dir` (see `python scripts/aggregate_docs.py --help`).
