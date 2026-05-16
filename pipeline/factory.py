@@ -67,6 +67,8 @@ def _resolve_work_dir_for_dagster(*, repo_root: Path, work_dir: Path | None) -> 
         )
         return default
     return resolved
+
+
 @dataclass(frozen=True)
 class TableSkeletonSpec:
     """One logical table asset: key parts and upstream table keys (same 4-segment shape)."""
@@ -76,6 +78,8 @@ class TableSkeletonSpec:
     dataset_name: str
     table_name: str
     depends_on_table_keys: tuple[tuple[str, str, str, str], ...]
+    schedule_cron: str | None = None
+    freshness_sla_hours: float | None = None
 
     @property
     def asset_key_parts(self) -> tuple[str, str, str, str]:
@@ -85,6 +89,18 @@ class TableSkeletonSpec:
 def table_asset_key_parts(repo_name: str, schema: str, dataset_name: str, table_name: str) -> tuple[str, str, str, str]:
     """Hierarchical key segments: repo, Postgres schema, dataset id, table name (avoids cross-repo collisions)."""
     return (repo_name, schema, dataset_name, table_name)
+
+
+def _validate_dataset_schedule_cron(repo_name: str, dataset_name: str, cron: str) -> None:
+    try:
+        from dagster._utils.schedules import is_valid_cron_string
+    except ImportError as e:  # pragma: no cover
+        raise RuntimeError(
+            f"{repo_name}: dataset {dataset_name!r} declares schedule; "
+            "install dagster to validate cron expressions."
+        ) from e
+    if not is_valid_cron_string(cron):
+        raise ValueError(f"{repo_name}: dataset {dataset_name!r}: invalid schedule cron {cron!r}")
 
 
 def _sanitize_python_identifier(name: str) -> str:
@@ -187,6 +203,25 @@ def collect_table_skeleton_specs(repos: Sequence[LoadedDefinitionRepo]) -> list[
             ds_level_deps = doc.get("depends_on") or []
             assert isinstance(ds_level_deps, list)
 
+            raw_sched = doc.get("schedule")
+            schedule_cron: str | None
+            if isinstance(raw_sched, str) and raw_sched.strip():
+                schedule_cron = raw_sched.strip()
+                _validate_dataset_schedule_cron(r.name, ds_name, schedule_cron)
+            else:
+                schedule_cron = None
+
+            raw_fresh = doc.get("freshness_sla_hours")
+            freshness_sla: float | None
+            if isinstance(raw_fresh, (int, float)):
+                freshness_sla = float(raw_fresh)
+                if freshness_sla <= 0:
+                    raise ValueError(
+                        f"{r.name}: dataset {ds_name!r}: freshness_sla_hours must be positive when set"
+                    )
+            else:
+                freshness_sla = None
+
             manifest_dep_keys: list[tuple[str, str, str, str]] = []
             for dep_repo_name in r.depends_on:
                 if dep_repo_name not in by_name:
@@ -222,6 +257,8 @@ def collect_table_skeleton_specs(repos: Sequence[LoadedDefinitionRepo]) -> list[
                         dataset_name=ds_name,
                         table_name=tn,
                         depends_on_table_keys=tuple(ordered),
+                        schedule_cron=schedule_cron,
+                        freshness_sla_hours=freshness_sla,
                     )
                 )
     return specs
@@ -323,15 +360,28 @@ def dagster_definitions_from_load_result(
     """Turn a :class:`DefinitionsLoadResult` into :class:`dagster.Definitions` (requires Dagster)."""
     root = repo_root.resolve() if repo_root is not None else _REPO_ROOT
     try:
-        from dagster import AssetKey, Definitions, asset
+        from dagster import (
+            AssetKey,
+            AssetSelection,
+            DefaultScheduleStatus,
+            Definitions,
+            ScheduleDefinition,
+            asset,
+            asset_check,
+            define_asset_job,
+        )
     except ImportError as e:  # pragma: no cover
         raise RuntimeError(
             "Dagster is required for dagster_definitions_from_load_result. "
             'Install with: pip install ".[compose]" or pip install "dagster==1.13.4"'
         ) from e
 
+    from pipeline import monitoring
+    from pipeline.notifications import slack_run_failure_sensors
+
     specs = collect_table_skeleton_specs(load_result.repos)
     assets: list[Any] = []
+    asset_checks: list[Any] = []
 
     def _make_compute_fn(s: TableSkeletonSpec) -> Callable[..., dict[str, str]]:
         def _compute() -> dict[str, str]:
@@ -346,7 +396,34 @@ def dagster_definitions_from_load_result(
         _compute.__name__ = python_fn_name_for_table_asset(s)
         return _compute
 
+    def _make_freshness_sla_check(s: TableSkeletonSpec, asset_def: Any) -> Any:
+        sla_hours = float(s.freshness_sla_hours or 0.0)
+        key_list = list(s.asset_key_parts)
+
+        @asset_check(asset=asset_def, name="freshness_sla_hours")
+        def _freshness_sla_check(context):
+            ev = context.instance.get_latest_materialization_event(AssetKey(key_list))
+            if ev is None:
+                ts = None
+            else:
+                ts = getattr(ev, "timestamp", None)
+                if ts is None and hasattr(ev, "event_log_entry"):
+                    ts = ev.event_log_entry.timestamp
+            return monitoring.freshness_sla_asset_check_result(
+                latest_materialization_timestamp=ts,
+                sla_hours=sla_hours,
+                now=monitoring.utc_now(),
+            )
+
+        _freshness_sla_check.__name__ = f"opendata_sla_check__{python_fn_name_for_table_asset(s)}"
+        return _freshness_sla_check
+
     for spec in specs:
+        fp = (
+            monitoring.freshness_policy_for_sla_hours(spec.freshness_sla_hours)
+            if spec.freshness_sla_hours is not None
+            else None
+        )
         decorated = asset(
             key=AssetKey(list(spec.asset_key_parts)),
             deps=[AssetKey(list(k)) for k in spec.depends_on_table_keys],
@@ -357,18 +434,72 @@ def dagster_definitions_from_load_result(
                 "opendata_schema": spec.schema,
                 "opendata_dataset": spec.dataset_name,
                 "opendata_table": spec.table_name,
+                **(
+                    {"freshness_sla_hours": float(spec.freshness_sla_hours)}
+                    if spec.freshness_sla_hours is not None
+                    else {}
+                ),
             },
+            freshness_policy=fp,
         )(_make_compute_fn(spec))
         assets.append(decorated)
+        if spec.freshness_sla_hours is not None:
+            asset_checks.append(_make_freshness_sla_check(spec, decorated))
 
     from pipeline.opendata_dbt import collect_dbt_assets_and_resources
 
     dbt_assets_list, dbt_resources = collect_dbt_assets_and_resources(load_result.repos, repo_root=root)
     assets.extend(dbt_assets_list)
 
+    # One schedule per dataset that declares ``schedule:`` in YAML (UTC cron). STOPPED by default.
+    dataset_jobs: dict[tuple[str, str, str], tuple[str, list[AssetKey]]] = {}
+    for spec in specs:
+        if spec.schedule_cron is None:
+            continue
+        gkey = (spec.repo_name, spec.schema, spec.dataset_name)
+        if gkey not in dataset_jobs:
+            dataset_jobs[gkey] = (spec.schedule_cron, [])
+        cron, keys = dataset_jobs[gkey]
+        if cron != spec.schedule_cron:
+            raise ValueError(
+                f"{spec.repo_name}: dataset {spec.dataset_name!r}: inconsistent schedule cron across tables"
+            )
+        keys.append(AssetKey(list(spec.asset_key_parts)))
+
+    schedules: list[Any] = []
+    for (repo_name, schema, dataset_name), (cron, keys) in sorted(dataset_jobs.items()):
+        job_name = (
+            "opendata_ds__"
+            f"{_sanitize_python_identifier(repo_name)}__{_sanitize_python_identifier(schema)}__"
+            f"{_sanitize_python_identifier(dataset_name)}"
+        )
+        job = define_asset_job(job_name, selection=AssetSelection.assets(*keys))
+        schedules.append(
+            ScheduleDefinition(
+                name=f"{job_name}__schedule",
+                job=job,
+                cron_schedule=cron,
+                execution_timezone="UTC",
+                default_status=DefaultScheduleStatus.STOPPED,
+                description=(
+                    f"Dataset schedule from YAML ({repo_name}/{dataset_name}, {cron} UTC). "
+                    "Enable in Dagster UI for automatic runs."
+                ),
+            )
+        )
+
+    sensors = slack_run_failure_sensors()
+
+    defs_kw: dict[str, Any] = {"assets": assets}
+    if schedules:
+        defs_kw["schedules"] = schedules
+    if asset_checks:
+        defs_kw["asset_checks"] = asset_checks
+    if sensors:
+        defs_kw["sensors"] = sensors
     if dbt_resources:
-        return Definitions(assets=assets, resources=dbt_resources)
-    return Definitions(assets=assets)
+        defs_kw["resources"] = dbt_resources
+    return Definitions(**defs_kw)
 
 
 def build_dagster_definitions(

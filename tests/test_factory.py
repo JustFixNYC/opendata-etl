@@ -191,6 +191,29 @@ def test_dataset_level_depends_on(tmp_path: Path) -> None:
     assert by_key[down].depends_on_table_keys == (up,)
 
 
+def test_invalid_dataset_schedule_cron_raises(tmp_path: Path) -> None:
+    pytest.importorskip("dagster")
+    _write(
+        tmp_path / "datasets" / "bad.yml",
+        "name: bad_ds\nschedule: \"not a cron\"\ntables:\n  - name: t1\n    source:\n      type: csv\n      url: \"https://example.invalid/x.csv\"\n    columns:\n      - name: id\n        type: bigint\n",
+    )
+    repo = LoadedDefinitionRepo(
+        name="r",
+        path=tmp_path,
+        url="u",
+        ref="ref",
+        schema="s",
+        protected=False,
+        depends_on=(),
+        enabled_datasets=("bad_ds",),
+        cross_repo_grants=(),
+        repo_yaml={"name": "r"},
+        topo_index=0,
+    )
+    with pytest.raises(ValueError, match="invalid schedule cron"):
+        collect_table_skeleton_specs((repo,))
+
+
 def test_embedded_example_collects_multiple_tables() -> None:
     root = Path(__file__).resolve().parents[1]
     result = embedded_example_load_result(root)

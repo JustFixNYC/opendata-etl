@@ -75,6 +75,10 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
       S3_BUCKET: ${S3_BUCKET:-opendata-landing}
+      # Optional Slack run-failure sensor (Step 12); omit variables to disable. Sensor starts STOPPED in Dagster UI.
+      # OPENDATA_SLACK_TOKEN: ${OPENDATA_SLACK_TOKEN:-}
+      # OPENDATA_SLACK_CHANNEL: ${OPENDATA_SLACK_CHANNEL:-}
+      # OPENDATA_SLACK_WEBSERVER_BASE_URL: ${OPENDATA_SLACK_WEBSERVER_BASE_URL:-}
     ports:
       - "${DAGSTER_PORT:-3000}:3000"
     volumes:
