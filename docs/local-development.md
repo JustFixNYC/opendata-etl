@@ -110,6 +110,32 @@ The script is idempotent. It reads the same `definitions.yml` contract as `load_
 
 **Smoke check (protected schema):** after provisioning with `examples/definitions.prod.yml`, connect as superuser, create a table in `nyc_reports`, then `SET ROLE opendata_public_read` and confirm `SELECT` on that table fails while `SELECT` on a table in `nyc_housing` succeeds. Automated equivalent: `OPENDATA_PROVISION_TEST_DATABASE_URL="$DATABASE_URL" python3 -m pytest -q tests/test_provisioning.py::test_live_postgres_public_read_cannot_select_protected_schema`.
 
+## Host Dagster + Docker Postgres (Workflow A)
+
+Common setup: ``docker compose up -d`` for Postgres/MinIO only, then run ``dagster`` or ``dagster asset materialize`` on the **host** (venv with ``.[compose]``).
+
+The hostname ``postgres`` in ``DATABASE_URL`` resolves only **inside** the Compose network. If Dagster loads a ``.env`` meant for containers, you will see:
+
+```text
+psycopg.OperationalError: failed to resolve host 'postgres'
+```
+
+Use **localhost** (published ``POSTGRES_PORT``, default 5432) for host-side commands:
+
+```bash
+export DATABASE_URL=postgresql://opendata:opendata@127.0.0.1:5432/opendata
+export OPENDATA_DEFINITIONS_MANIFEST_PATH=examples/definitions.local.yml
+export OPENDATA_DAGSTER_DEFINITION_LOAD=clone
+export OPENDATA_DAGSTER_MATERIALIZE=full
+
+python3 scripts/provision_roles.py --manifest examples/definitions.local.yml
+
+dagster asset materialize -m pipeline.dagster_defs \
+  --select 'nycdb2/nyc_housing/rentstab_v2/rentstab_v2'
+```
+
+Tip: keep ``DATABASE_URL`` with ``127.0.0.1`` in ``.env`` when you usually materialize from the host; use ``postgres`` only when running inside the ``dagster`` service (``docker compose exec dagster …``).
+
 ## Non-Docker workflows
 
 - Validate definitions load in Dagster: ``dagster definitions validate -m pipeline.dagster_defs`` (from repo root with optional deps installed).

@@ -13,16 +13,16 @@ source_credentials:
     kind: aws_iam
     description: IAM principal with s3:GetObject on opendata-etl-testing (default credential chain).
 definitions:
-  - name: example_collection
-    url: "https://github.com/example-org/example-definition-repo.git"
-    ref: main
-    schema: ex_housing
-    protected: false
-    depends_on: []
-    enabled_datasets:
-      - sample_csv
-      - bundle_demo
-      - s3_fixture
+  # - name: example_collection
+  #   url: "https://github.com/example-org/example-definition-repo.git"
+  #   ref: main
+  #   schema: ex_housing
+  #   protected: false
+  #   depends_on: []
+  #   enabled_datasets:
+  #     - sample_csv
+  #     - bundle_demo
+  #     - s3_fixture
   - name: nycdb2
     url: "file:///Users/maxwell/repos/nycdb2"
     ref: main
