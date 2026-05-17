@@ -68,10 +68,11 @@ def test_shapefile_zip_to_raw_csv_uses_ogr2ogr(tmp_path: Path) -> None:
     raw_csv = tmp_path / "out.csv"
     raw_csv.write_text("WKT,CounDist\nPOINT (0 0),1\n", encoding="utf-8")
 
-    with patch("pipeline.extract.orchestrate.ogr2ogr_available", return_value=True), patch(
+    with patch("pipeline.extract.orchestrate.verify_ogr2ogr_runtime"), patch(
         "pipeline.extract.orchestrate.run_ogr2ogr_shapefile_to_csv"
     ) as mock_run:
-        def _fake_ogr(inp, out, src):  # noqa: ARG001
+
+        def _fake_ogr(inp, out, src, check=True):  # noqa: ARG001
             Path(out).write_text("WKT,CounDist\nPOINT (0 0),1\n", encoding="utf-8")
 
         mock_run.side_effect = _fake_ogr

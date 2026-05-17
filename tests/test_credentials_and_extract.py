@@ -19,8 +19,10 @@ from pipeline.extract.http import download_bytes
 from pipeline.extract.landing import landing_object_key, write_landing_bytes
 from pipeline.extract.s3_source import read_s3_object_bytes
 from pipeline.extract.shapefile import (
+    Ogr2ogrError,
     build_ogr2ogr_shapefile_to_geojson_command,
     ogr2ogr_crs_flags_from_source,
+    verify_ogr2ogr_runtime,
 )
 
 
@@ -151,6 +153,12 @@ def test_download_bytes_uses_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("pipeline.extract.http.requests.get", fake_get)
     assert download_bytes("https://example.invalid/x") == b"ok"
+
+
+def test_verify_ogr2ogr_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pipeline.extract.shapefile.shutil.which", lambda _: None)
+    with pytest.raises(Ogr2ogrError, match="not found on PATH"):
+        verify_ogr2ogr_runtime()
 
 
 def test_ogr2ogr_crs_flags_from_source_epsg() -> None:

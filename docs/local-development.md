@@ -136,6 +136,8 @@ dagster asset materialize -m pipeline.dagster_defs \
 
 Tip: keep ``DATABASE_URL`` with ``127.0.0.1`` in ``.env`` when you usually materialize from the host; use ``postgres`` only when running inside the ``dagster`` service (``docker compose exec dagster …``).
 
+**Shapefile (`nycc`) requires GDAL:** ``ogr2ogr`` must be on ``PATH`` and runnable (``ogr2ogr --version``). If it crashes with ``SIGABRT`` or ``Library not loaded`` (Homebrew dylib mismatch), run ``brew reinstall gdal`` (sometimes ``brew reinstall abseil re2 gdal``). The framework Docker image should include ``gdal-bin`` for in-container runs.
+
 ## Non-Docker workflows
 
 - Validate definitions load in Dagster: ``dagster definitions validate -m pipeline.dagster_defs`` (from repo root with optional deps installed).

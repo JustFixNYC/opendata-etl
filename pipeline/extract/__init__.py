@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Extract primitives: HTTP download, S3 source reads, shapefile stub, landing-zone writes."""
+"""Extract primitives: HTTP download, S3 source reads, shapefile (ogr2ogr), landing-zone writes."""
 
 from __future__ import annotations
 

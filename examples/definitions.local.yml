@@ -33,7 +33,7 @@ definitions:
       - fixture_hello
       - rentstab_v2
       - nycc
+      - hpd_violations
+      - hpd_registrations
       # Tier C / protected — enable locally as needed:
-      # - hpd_violations
-      # - hpd_registrations
-      # - hpd_vacateorders
+      - hpd_vacateorders

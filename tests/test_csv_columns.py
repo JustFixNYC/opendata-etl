@@ -46,6 +46,24 @@ def test_project_csv_fails_on_missing_required_column(tmp_path: Path) -> None:
         project_csv_to_staging(src, dest, table)
 
 
+def test_project_csv_accepts_large_wkt_fields(tmp_path: Path) -> None:
+    """Shapefile ogr2ogr CSV can exceed the default 128 KiB csv.field_size_limit."""
+    big = "x" * 200_000
+    src = tmp_path / "big_wkt.csv"
+    src.write_text(f"WKT,id\n\"{big}\",1\n", encoding="utf-8")
+    dest = tmp_path / "staged.csv"
+    table = {
+        "columns": [
+            {"name": "geom", "type": "geometry", "source_header": "WKT"},
+            {"name": "id", "type": "integer"},
+        ],
+    }
+    project_csv_to_staging(src, dest, table)
+    lines = dest.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "geom,id"
+    assert len(lines[1]) > 200_000
+
+
 def test_parse_csv_headers_respects_quotes(tmp_path: Path) -> None:
     p = tmp_path / "quoted.csv"
     p.write_text('"Violation ID",Simple\n1,2\n', encoding="utf-8")

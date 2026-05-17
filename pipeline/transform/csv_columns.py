@@ -4,8 +4,20 @@
 from __future__ import annotations
 
 import csv
+import sys
 from pathlib import Path
 from typing import Any, Mapping, TextIO
+
+# ogr2ogr shapefile→CSV can emit very large WKT cells (default csv limit is 128 KiB).
+_CSV_FIELD_LIMIT = min(2**31 - 1, sys.maxsize)
+
+
+def _ensure_csv_field_limit() -> None:
+    """Allow large geometry WKT and wide text fields when reading source CSVs."""
+    try:
+        csv.field_size_limit(_CSV_FIELD_LIMIT)
+    except OverflowError:
+        csv.field_size_limit(2**31 - 1)
 
 from pipeline.transform.column_names import resolve_column_name
 from pipeline.transform.source_schema import unexpected_new_headers
@@ -17,6 +29,7 @@ class CsvColumnError(ValueError):
 
 def parse_csv_header_row(fh: TextIO) -> list[str]:
     """Read the first CSV record as header field names (respects quoting)."""
+    _ensure_csv_field_limit()
     reader = csv.reader(fh)
     row = next(reader, None)
     if row is None:
@@ -119,6 +132,7 @@ def project_csv_to_staging(
         out_indices.append(name_to_idx[nm])
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_csv_field_limit()
     with source_path.open(encoding=encoding, newline="") as src_fh, dest_path.open(
         "w", encoding=encoding, newline=""
     ) as dst_fh:

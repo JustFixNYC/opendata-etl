@@ -14,9 +14,10 @@ from pipeline.credentials import resolve_source_aws
 from pipeline.extract.http import HttpDownloadError, download_bytes
 from pipeline.extract.s3_source import S3SourceReadError, read_s3_object_bytes
 from pipeline.extract.shapefile import (
+    Ogr2ogrError,
     discover_shapefile_path,
-    ogr2ogr_available,
     run_ogr2ogr_shapefile_to_csv,
+    verify_ogr2ogr_runtime,
 )
 from pipeline.transform.csv_columns import CsvColumnError, project_csv_to_staging
 
@@ -116,11 +117,7 @@ def shapefile_zip_to_raw_csv(
     work_dir: Path,
     label: str,
 ) -> Path:
-    """Unpack a shapefile zip, run ``ogr2ogr`` to CSV with ``GEOMETRY=AS_WKT``, return CSV path."""
-    if not ogr2ogr_available():
-        raise ExtractOrchestrationError(
-            f"{label}: ogr2ogr not found on PATH; install GDAL to extract shapefiles"
-        )
+    """Unpack a shapefile zip and convert to CSV with WKT via ``ogr2ogr`` (requires GDAL)."""
     unpack = work_dir / "shp_unpack"
     _extract_zip_to_dir(zip_bytes, unpack)
     path_hint = source.get("path")
@@ -128,9 +125,10 @@ def shapefile_zip_to_raw_csv(
     shp_path = discover_shapefile_path(unpack, path_hint=hint)
     raw_csv = work_dir / "shapefile_raw.csv"
     try:
+        verify_ogr2ogr_runtime()
         run_ogr2ogr_shapefile_to_csv(shp_path, raw_csv, source)
-    except Exception as e:
-        raise ExtractOrchestrationError(f"{label}: ogr2ogr failed: {e}") from e
+    except Ogr2ogrError as e:
+        raise ExtractOrchestrationError(f"{label}: shapefile extract failed: {e}") from e
     if not raw_csv.is_file():
         raise ExtractOrchestrationError(f"{label}: ogr2ogr did not produce {raw_csv}")
     return raw_csv
