@@ -4,6 +4,12 @@ source_credentials:
   fake_source_reader:
     kind: aws_iam
     description: Example placeholder for EC2 instance role or ambient AWS credentials.
+  justfix_data_public:
+    kind: none
+    description: Unsigned reads for public JustFix S3 objects (rentstab_v2).
+  opendata_etl_testing:
+    kind: aws_iam
+    description: Protected testing bucket (hpd_vacateorders); IAM user or instance role.
 definitions:
   - name: core_housing
     url: "https://github.com/example-org/core-housing-definitions.git"

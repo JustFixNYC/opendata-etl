@@ -10,15 +10,31 @@ from pipeline.extract.landing import (
     write_landing_bytes,
 )
 from pipeline.extract.s3_source import read_s3_object_bytes
+from pipeline.extract.orchestrate import (
+    ExtractOrchestrationError,
+    TableStagingResult,
+    extract_dataset_to_staging,
+    extract_table_to_staging,
+    fetch_source_bytes,
+)
 from pipeline.extract.shapefile import (
+    build_ogr2ogr_shapefile_to_csv_command,
     build_ogr2ogr_shapefile_to_geojson_command,
+    discover_shapefile_path,
     ogr2ogr_available,
     ogr2ogr_crs_flags_from_source,
 )
 from pipeline.transform.csv_columns import project_csv_to_staging
 
 __all__ = [
+    "ExtractOrchestrationError",
+    "TableStagingResult",
+    "build_ogr2ogr_shapefile_to_csv_command",
     "build_ogr2ogr_shapefile_to_geojson_command",
+    "discover_shapefile_path",
+    "extract_dataset_to_staging",
+    "extract_table_to_staging",
+    "fetch_source_bytes",
     "default_landing_prefix",
     "download_bytes",
     "download_text",

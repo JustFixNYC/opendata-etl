@@ -1,9 +1,17 @@
 api_version: opendata-etl.definitions/v1
-notes: Local developer manifest — fake URLs and credential names only.
+notes: |
+  Local developer manifest — example collection plus file:// nycdb2 for Step 15.
+  Set OPENDATA_DAGSTER_DEFINITION_LOAD=clone and OPENDATA_DAGSTER_MATERIALIZE=full with DATABASE_URL for E2E.
 source_credentials:
   fake_source_reader:
     kind: aws_profile
-    description: Example placeholder; runtime maps this name via environment (no secrets in YAML).
+    description: Example placeholder for examples/definition-repo s3_fixture.
+  justfix_data_public:
+    kind: none
+    description: Unsigned reads for public JustFix S3 objects (rentstab_v2).
+  opendata_etl_testing:
+    kind: aws_iam
+    description: IAM principal with s3:GetObject on opendata-etl-testing (default credential chain).
 definitions:
   - name: example_collection
     url: "https://github.com/example-org/example-definition-repo.git"
@@ -15,3 +23,17 @@ definitions:
       - sample_csv
       - bundle_demo
       - s3_fixture
+  - name: nycdb2
+    url: "file:///Users/maxwell/repos/nycdb2"
+    ref: main
+    schema: nyc_housing
+    protected: false
+    depends_on: []
+    enabled_datasets:
+      - fixture_hello
+      - rentstab_v2
+      - nycc
+      # Tier C / protected — enable locally as needed:
+      # - hpd_violations
+      # - hpd_registrations
+      # - hpd_vacateorders

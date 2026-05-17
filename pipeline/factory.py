@@ -283,9 +283,17 @@ def embedded_example_load_result(repo_root: Path | None = None) -> DefinitionsLo
     manifest_path = (root / "examples" / "definitions.local.yml").resolve()
     deployment = load_deployment_manifest(manifest_path)
     defs_list = deployment["definitions"]
-    if not isinstance(defs_list, list) or len(defs_list) != 1:
-        raise RuntimeError("embedded_example_load_result expects exactly one definitions[] row in definitions.local.yml")
-    row = defs_list[0]
+    if not isinstance(defs_list, list) or not defs_list:
+        raise RuntimeError("embedded_example_load_result expects definitions[] in definitions.local.yml")
+    row = None
+    for candidate in defs_list:
+        if isinstance(candidate, dict) and candidate.get("name") == "example_collection":
+            row = candidate
+            break
+    if row is None:
+        row = defs_list[0]
+    if not isinstance(row, dict):
+        raise RuntimeError("invalid definitions.local.yml")
     if not isinstance(row, dict):
         raise RuntimeError("invalid definitions.local.yml")
     name = str(row["name"])
@@ -395,9 +403,20 @@ def dagster_definitions_from_load_result(
     specs = collect_table_skeleton_specs(load_result.repos)
     assets: list[Any] = []
     asset_checks: list[Any] = []
+    repo_by_name = {r.name: r for r in load_result.repos}
+    cred_decls_raw = load_result.deployment.get("source_credentials") or {}
+    credential_decls = cred_decls_raw if isinstance(cred_decls_raw, dict) else {}
 
-    def _make_compute_fn(s: TableSkeletonSpec) -> Callable[..., dict[str, str]]:
-        def _compute() -> dict[str, str]:
+    def _dagster_materialize_mode() -> str:
+        raw = (os.environ.get("OPENDATA_DAGSTER_MATERIALIZE") or "auto").strip().lower()
+        if raw in ("auto", "skeleton", "full"):
+            return raw
+        raise ValueError(
+            f"Unknown OPENDATA_DAGSTER_MATERIALIZE={raw!r} (expected auto, skeleton, or full)"
+        )
+
+    def _make_compute_fn(s: TableSkeletonSpec) -> Callable[..., Any]:
+        def _compute_skeleton() -> dict[str, str]:
             return {
                 "kind": "opendata_etl_skeleton",
                 "repo": s.repo_name,
@@ -405,6 +424,51 @@ def dagster_definitions_from_load_result(
                 "dataset": s.dataset_name,
                 "table": s.table_name,
             }
+
+        def _compute_full() -> Any:
+            from dagster import MaterializeResult, MetadataValue
+
+            from pipeline.dataset_materialize import MaterializeError, materialize_dataset_table
+
+            repo = repo_by_name.get(s.repo_name)
+            if repo is None:
+                raise RuntimeError(f"unknown repo {s.repo_name!r}")
+            try:
+                result = materialize_dataset_table(
+                    repo=repo,
+                    schema=s.schema,
+                    dataset_name=s.dataset_name,
+                    table_name=s.table_name,
+                    source_credentials=load_result.source_credentials,
+                    credential_decls=credential_decls,
+                    manifest_path=load_result.manifest_path,
+                    provision=True,
+                )
+            except MaterializeError as e:
+                raise RuntimeError(str(e)) from e
+            meta: dict[str, Any] = {
+                "opendata_kind": MetadataValue.text("extract_load"),
+                "opendata_repo": MetadataValue.text(s.repo_name),
+                "opendata_schema": MetadataValue.text(s.schema),
+                "opendata_dataset": MetadataValue.text(s.dataset_name),
+                "opendata_table": MetadataValue.text(s.table_name),
+                "unexpected_new_headers": MetadataValue.json(
+                    list(result.unexpected_new_headers)
+                ),
+            }
+            if result.row_count is not None:
+                meta["row_count"] = MetadataValue.int(result.row_count)
+            return MaterializeResult(metadata=meta)
+
+        def _compute() -> Any:
+            mode = _dagster_materialize_mode()
+            if mode == "skeleton":
+                return _compute_skeleton()
+            if mode == "full":
+                return _compute_full()
+            if not (os.environ.get("DATABASE_URL") or "").strip():
+                return _compute_skeleton()
+            return _compute_full()
 
         _compute.__name__ = python_fn_name_for_table_asset(s)
         return _compute
@@ -470,7 +534,10 @@ def dagster_definitions_from_load_result(
             key=AssetKey(list(spec.asset_key_parts)),
             deps=[AssetKey(list(k)) for k in spec.depends_on_table_keys],
             group_name=spec.schema,
-            description=f"Skeleton dataset table ({spec.repo_name}/{spec.dataset_name}/{spec.table_name})",
+            description=(
+                f"Dataset table ({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
+                "materialize runs extract→staging→load when DATABASE_URL is set."
+            ),
             metadata={
                 "opendata_repo": spec.repo_name,
                 "opendata_schema": spec.schema,
