@@ -27,6 +27,7 @@ from pipeline.validation import (
     validate_definition_repo,
     validate_deployment,
 )
+from pipeline.sample_csv_validation import validate_repo_sample_csv
 
 
 def validate_examples_default() -> None:
@@ -55,6 +56,26 @@ def main() -> None:
         action="store_true",
         help="With --repo and --deployment, ensure dataset credential: names are listed under source_credentials",
     )
+    parser.add_argument(
+        "--sample-csv",
+        type=Path,
+        help="With --repo, validate column contracts against the sample CSV header row",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        help="Limit --sample-csv validation to one dataset name",
+    )
+    parser.add_argument(
+        "--table",
+        type=str,
+        help="With --sample-csv, select a table when the dataset has multiple tables",
+    )
+    parser.add_argument(
+        "--fail-on-new-source-columns",
+        action="store_true",
+        help="With --sample-csv, exit non-zero when unexpected_new headers are present",
+    )
     args = parser.parse_args()
 
     if not args.examples_default and not args.repo and not args.deployment:
@@ -74,6 +95,17 @@ def main() -> None:
             if not args.repo or not args.deployment:
                 raise SystemExit("--check-credentials requires both --repo and --deployment")
             check_credentials(args.deployment.resolve(), args.repo.resolve())
+
+        if args.sample_csv:
+            if not args.repo:
+                raise SystemExit("--sample-csv requires --repo")
+            validate_repo_sample_csv(
+                args.repo.resolve(),
+                args.sample_csv.resolve(),
+                dataset_name=args.dataset,
+                table_name=args.table,
+                fail_on_new=args.fail_on_new_source_columns,
+            )
     except SchemaValidationError as e:
         raise SystemExit(str(e).rstrip()) from e
 

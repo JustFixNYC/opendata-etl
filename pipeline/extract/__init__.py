@@ -15,6 +15,7 @@ from pipeline.extract.shapefile import (
     ogr2ogr_available,
     ogr2ogr_crs_flags_from_source,
 )
+from pipeline.transform.csv_columns import project_csv_to_staging
 
 __all__ = [
     "build_ogr2ogr_shapefile_to_geojson_command",
@@ -25,5 +26,6 @@ __all__ = [
     "ogr2ogr_available",
     "ogr2ogr_crs_flags_from_source",
     "read_s3_object_bytes",
+    "project_csv_to_staging",
     "write_landing_bytes",
 ]

@@ -78,7 +78,13 @@
           "items": { "type": "string", "minLength": 1, "maxLength": 64 },
           "description": "Optional strptime-style format hints for date/timestamp parsing."
         },
-        "nullable": { "type": "boolean", "default": true }
+        "nullable": { "type": "boolean", "default": true },
+        "source_header": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Literal CSV or DBF field name before derive; required when derive(source_header) != name."
+        }
       }
     },
     "indexDef": {
@@ -222,6 +228,18 @@
         "foreign_keys": {
           "type": "array",
           "items": { "$ref": "#/$defs/foreignKey" }
+        },
+        "column_aliases": {
+          "type": "object",
+          "description": "After derive, map derived header names to final Postgres column names (nycdb header_replacements parity).",
+          "additionalProperties": { "$ref": "#/$defs/postgresIdentifier" },
+          "propertyNames": { "$ref": "#/$defs/postgresIdentifier" }
+        },
+        "source_skip": {
+          "type": "array",
+          "description": "Known extra source headers (raw or derived match); suppresses new-column alerts only — does not load these columns.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "uniqueItems": true
         }
       }
     }

@@ -7,6 +7,7 @@
 nav:
   - Home: index.md
   - Local development: local-development.md
+  - Column naming: column-names.md
   - Definition repo docs:
       - Overview: generated/definition_repos/index.md
       - glob: "generated/definition_repos/*/"

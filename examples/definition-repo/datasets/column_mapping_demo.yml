@@ -1,0 +1,18 @@
+name: column_mapping_demo
+description: |
+  Demonstrates source_header mapping and source_skip alert suppression (Step 14b).
+  Pair with fixtures/column_mapping_demo.csv for validate_definitions --sample-csv.
+schema_contract: evolve
+tables:
+  - name: violations_sample
+    source:
+      type: csv
+      url: "https://example.invalid/opendata-etl-fixtures/column_mapping_demo.csv"
+    source_skip:
+      - Extra Junk
+    columns:
+      - name: violationid
+        type: integer
+        source_header: "Violation ID"
+      - name: ucbbl
+        type: text

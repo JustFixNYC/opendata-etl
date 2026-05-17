@@ -12,7 +12,7 @@ are implemented — this step only documents the contract and attaches declarati
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Callable, Sequence
 
 from dagster import AssetCheckResult, AssetCheckSeverity, FreshnessPolicy
 
@@ -77,3 +77,38 @@ def freshness_sla_asset_check_result(
             ),
         )
     return AssetCheckResult(passed=True, description="Within freshness_sla_hours window.")
+
+
+def unexpected_new_headers_asset_check_result(
+    *,
+    unexpected_headers: Sequence[str] | None,
+    schema_contract: str | None,
+    dataset_label: str,
+    table_name: str,
+) -> AssetCheckResult:
+    """WARN (or ERROR when ``schema_contract: freeze``) on undeclared source headers."""
+    headers: tuple[str, ...]
+    if unexpected_headers is None:
+        return AssetCheckResult(
+            passed=True,
+            description="No source header snapshot in materialization metadata.",
+        )
+    headers = tuple(str(h) for h in unexpected_headers if str(h).strip())
+    if not headers:
+        return AssetCheckResult(passed=True, description="No unexpected new source headers.")
+
+    listed = ", ".join(repr(h) for h in headers)
+    contract = (schema_contract or "evolve").strip().lower()
+    freeze = contract == "freeze"
+    severity = AssetCheckSeverity.ERROR if freeze else AssetCheckSeverity.WARN
+    verb = "ERROR" if freeze else "WARN"
+    return AssetCheckResult(
+        passed=False,
+        severity=severity,
+        description=(
+            f"{verb}: {len(headers)} unexpected new source column(s) for {dataset_label}/{table_name}: "
+            f"{listed}. Add columns[] entries or source_skip (alert suppression only). "
+            f"schema_contract={contract!r}."
+        ),
+        metadata={"unexpected_new_headers": list(headers)},
+    )

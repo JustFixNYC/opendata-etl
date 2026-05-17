@@ -80,6 +80,8 @@ class TableSkeletonSpec:
     depends_on_table_keys: tuple[tuple[str, str, str, str], ...]
     schedule_cron: str | None = None
     freshness_sla_hours: float | None = None
+    schema_contract: str | None = None
+    dataset_yaml_relpath: str | None = None
 
     @property
     def asset_key_parts(self) -> tuple[str, str, str, str]:
@@ -222,6 +224,15 @@ def collect_table_skeleton_specs(repos: Sequence[LoadedDefinitionRepo]) -> list[
             else:
                 freshness_sla = None
 
+            raw_contract = doc.get("schema_contract")
+            schema_contract: str | None
+            if isinstance(raw_contract, str) and raw_contract.strip():
+                schema_contract = raw_contract.strip()
+            else:
+                schema_contract = None
+
+            ds_yaml_relpath = f"datasets/{ds_name}.yml"
+
             manifest_dep_keys: list[tuple[str, str, str, str]] = []
             for dep_repo_name in r.depends_on:
                 if dep_repo_name not in by_name:
@@ -259,6 +270,8 @@ def collect_table_skeleton_specs(repos: Sequence[LoadedDefinitionRepo]) -> list[
                         depends_on_table_keys=tuple(ordered),
                         schedule_cron=schedule_cron,
                         freshness_sla_hours=freshness_sla,
+                        schema_contract=schema_contract,
+                        dataset_yaml_relpath=ds_yaml_relpath,
                     )
                 )
     return specs
@@ -418,6 +431,35 @@ def dagster_definitions_from_load_result(
         _freshness_sla_check.__name__ = f"opendata_sla_check__{python_fn_name_for_table_asset(s)}"
         return _freshness_sla_check
 
+    def _make_unexpected_new_check(s: TableSkeletonSpec, asset_def: Any) -> Any:
+        dataset_label = f"{s.repo_name}/{s.dataset_yaml_relpath or s.dataset_name}"
+
+        @asset_check(asset=asset_def, name="unexpected_new_source_headers")
+        def _unexpected_new_check(context):
+            ev = context.instance.get_latest_materialization_event(AssetKey(list(s.asset_key_parts)))
+            unexpected: list[str] | None = None
+            if ev is not None:
+                mat = getattr(ev, "asset_materialization", None)
+                if mat is None and hasattr(ev, "event_log_entry"):
+                    dagster_event = ev.event_log_entry.dagster_event
+                    if dagster_event is not None:
+                        mat = dagster_event.asset_materialization
+                if mat is not None and mat.metadata:
+                    entry = mat.metadata.get("unexpected_new_headers")
+                    if entry is not None:
+                        val = getattr(entry, "value", entry)
+                        if isinstance(val, list):
+                            unexpected = [str(x) for x in val]
+            return monitoring.unexpected_new_headers_asset_check_result(
+                unexpected_headers=unexpected,
+                schema_contract=s.schema_contract,
+                dataset_label=dataset_label,
+                table_name=s.table_name,
+            )
+
+        _unexpected_new_check.__name__ = f"opendata_new_cols_check__{python_fn_name_for_table_asset(s)}"
+        return _unexpected_new_check
+
     for spec in specs:
         fp = (
             monitoring.freshness_policy_for_sla_hours(spec.freshness_sla_hours)
@@ -445,6 +487,7 @@ def dagster_definitions_from_load_result(
         assets.append(decorated)
         if spec.freshness_sla_hours is not None:
             asset_checks.append(_make_freshness_sla_check(spec, decorated))
+        asset_checks.append(_make_unexpected_new_check(spec, decorated))
 
     from pipeline.opendata_dbt import collect_dbt_assets_and_resources
 
