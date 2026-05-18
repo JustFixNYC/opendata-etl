@@ -277,26 +277,49 @@ def collect_table_skeleton_specs(repos: Sequence[LoadedDefinitionRepo]) -> list[
     return specs
 
 
+_EMBEDDED_EXAMPLE_COLLECTION_ROW: dict[str, Any] = {
+    "name": "example_collection",
+    "url": "https://github.com/example-org/example-definition-repo.git",
+    "ref": "main",
+    "schema": "ex_housing",
+    "protected": False,
+    "depends_on": [],
+    "enabled_datasets": [
+        "sample_csv",
+        "bundle_demo",
+        "s3_fixture",
+    ],
+}
+
+
+def _deployment_for_embedded_example(deployment: dict[str, Any]) -> dict[str, Any]:
+    """Ensure ``example_collection`` / ``ex_housing`` are present for access and provisioning helpers."""
+    out = dict(deployment)
+    defs_raw = out.get("definitions")
+    defs: list[Any] = list(defs_raw) if isinstance(defs_raw, list) else []
+    if not any(isinstance(d, dict) and d.get("name") == "example_collection" for d in defs):
+        defs = [_EMBEDDED_EXAMPLE_COLLECTION_ROW, *defs]
+    out["definitions"] = defs
+    return out
+
+
+def _embedded_example_collection_row(deployment: dict[str, Any]) -> dict[str, Any]:
+    for candidate in deployment.get("definitions") or []:
+        if isinstance(candidate, dict) and candidate.get("name") == "example_collection":
+            return candidate
+    return dict(_EMBEDDED_EXAMPLE_COLLECTION_ROW)
+
+
 def embedded_example_load_result(repo_root: Path | None = None) -> DefinitionsLoadResult:
     """In-memory load result pointing at the checked-in ``examples/definition-repo`` tree (no git clone)."""
     root = repo_root.resolve() if repo_root is not None else _REPO_ROOT
     manifest_path = (root / "examples" / "definitions.local.yml").resolve()
-    deployment = load_deployment_manifest(manifest_path)
+    deployment = _deployment_for_embedded_example(load_deployment_manifest(manifest_path))
     defs_list = deployment["definitions"]
     if not isinstance(defs_list, list) or not defs_list:
         raise RuntimeError("embedded_example_load_result expects definitions[] in definitions.local.yml")
-    row = None
-    for candidate in defs_list:
-        if isinstance(candidate, dict) and candidate.get("name") == "example_collection":
-            row = candidate
-            break
-    if row is None:
-        row = defs_list[0]
-    if not isinstance(row, dict):
-        raise RuntimeError("invalid definitions.local.yml")
-    if not isinstance(row, dict):
-        raise RuntimeError("invalid definitions.local.yml")
-    name = str(row["name"])
+    row = _embedded_example_collection_row(deployment)
+    name = "example_collection"
     ex_path = (root / "examples" / "definition-repo").resolve()
     if not (ex_path / "repo.yml").is_file():
         raise FileNotFoundError(f"Missing example definition repo at {ex_path}")
@@ -313,9 +336,9 @@ def embedded_example_load_result(repo_root: Path | None = None) -> DefinitionsLo
     repo = LoadedDefinitionRepo(
         name=name,
         path=ex_path,
-        url=str(row["url"]),
-        ref=str(row["ref"]),
-        schema=str(row["schema"]),
+        url=str(row.get("url", _EMBEDDED_EXAMPLE_COLLECTION_ROW["url"])),
+        ref=str(row.get("ref", _EMBEDDED_EXAMPLE_COLLECTION_ROW["ref"])),
+        schema=str(row.get("schema", _EMBEDDED_EXAMPLE_COLLECTION_ROW["schema"])),
         protected=bool(row["protected"]),
         depends_on=tuple(sorted(str(x) for x in (row.get("depends_on") or []) if isinstance(x, str))),
         enabled_datasets=enabled_tuple,

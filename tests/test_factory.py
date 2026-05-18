@@ -214,6 +214,19 @@ def test_invalid_dataset_schedule_cron_raises(tmp_path: Path) -> None:
         collect_table_skeleton_specs((repo,))
 
 
+def test_embedded_example_uses_example_collection_when_manifest_omits_it() -> None:
+    """Local manifests may list only file:// repos; embedded mode must not inherit the first row."""
+    root = Path(__file__).resolve().parents[1]
+    result = embedded_example_load_result(root)
+    assert result.topo_order_names == ("example_collection",)
+    assert result.repos[0].name == "example_collection"
+    assert result.repos[0].schema == "ex_housing"
+    assert any(
+        isinstance(d, dict) and d.get("name") == "example_collection" and d.get("schema") == "ex_housing"
+        for d in result.deployment["definitions"]
+    )
+
+
 def test_embedded_example_collects_multiple_tables() -> None:
     root = Path(__file__).resolve().parents[1]
     result = embedded_example_load_result(root)
