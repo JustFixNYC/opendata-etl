@@ -60,13 +60,16 @@ def test_dagster_definitions_include_schedules_and_checks() -> None:
     assert len(rd.asset_checks_defs_by_key) >= 3
 
 
-def test_materialize_surfaces_sla_check_warning() -> None:
+def test_materialize_surfaces_sla_check_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the generated SLA check with a fake clock so the evaluation is deterministic."""
     pytest.importorskip("dagster")
     from dagster import AssetSelection, materialize
     from dagster._core.instance import DagsterInstance
 
     from pipeline.factory import dagster_definitions_from_load_result, embedded_example_load_result
+
+    # CI sets DATABASE_URL (Postgres service); avoid full extract against example.invalid URLs.
+    monkeypatch.setenv("OPENDATA_DAGSTER_MATERIALIZE", "skeleton")
 
     root = Path(__file__).resolve().parents[1]
     defs = dagster_definitions_from_load_result(embedded_example_load_result(root))
