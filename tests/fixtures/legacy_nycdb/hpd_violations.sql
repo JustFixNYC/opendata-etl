@@ -1,0 +1,2 @@
+CREATE INDEX hpd_violations_bbl_idx on hpd_violations (bbl);
+CREATE UNIQUE INDEX hpd_violations_violationid_idx on hpd_violations (violationid);
