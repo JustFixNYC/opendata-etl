@@ -43,6 +43,16 @@
       "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9_-]*$" },
       "uniqueItems": true,
       "default": []
+    },
+    "derived_python": {
+      "type": "boolean",
+      "description": "When true, this repo may ship derived_jobs/*.yml and python/derived/ entrypoints."
+    },
+    "derived_image": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Optional ECR/OCI image for derived job workers (scaled profile); defaults to deployment framework image."
     }
   }
 }

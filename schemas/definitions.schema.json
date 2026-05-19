@@ -16,6 +16,11 @@
       "maxLength": 8000,
       "description": "Non-executable deployment notes (runbooks, owners, etc.)."
     },
+    "profile": {
+      "type": "string",
+      "enum": ["lite", "standard", "scaled"],
+      "description": "Deployment profile: lite (Compose/local files), standard (interim S3), scaled (Aurora+EKS). Defaults to lite when omitted."
+    },
     "source_credentials": {
       "type": "object",
       "description": "Named credentials referenced from dataset YAML (values are hints only; never secrets).",
@@ -126,7 +131,7 @@
         },
         "enabled_datasets": {
           "type": "array",
-          "description": "If set, only these dataset ids from the repo are registered; omit for all datasets.",
+          "description": "If set, only these dataset and derived job ids from the repo are registered; omit for all.",
           "items": {
             "type": "string",
             "minLength": 1,

@@ -12,6 +12,8 @@ from typing import Any, Callable, Sequence
 
 from pipeline.definitions import DefinitionsLoadError, DefinitionsLoadResult, LoadedDefinitionRepo, load_definitions
 from pipeline.provisioning import load_deployment_manifest
+from pipeline.repo_yaml import parse_repo_datasets as _parse_repo_datasets
+from pipeline.repo_yaml import parse_repo_derived_jobs as _parse_repo_derived_jobs
 from pipeline.validation import load_yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -78,6 +80,8 @@ class TableSkeletonSpec:
     dataset_name: str
     table_name: str
     depends_on_table_keys: tuple[tuple[str, str, str, str], ...]
+    asset_kind: str = "dataset"
+    """``dataset`` (extract/load) or ``derived`` (Python job → CSV → load)."""
     schedule_cron: str | None = None
     freshness_sla_hours: float | None = None
     schema_contract: str | None = None
@@ -118,7 +122,8 @@ def python_fn_name_for_table_asset(spec: TableSkeletonSpec) -> str:
         _sanitize_python_identifier(x)
         for x in (spec.repo_name, spec.schema, spec.dataset_name, spec.table_name)
     )
-    return f"opendata_dataset_table__{base}"
+    prefix = "opendata_derived_table" if spec.asset_kind == "derived" else "opendata_dataset_table"
+    return f"{prefix}__{base}"
 
 
 def _enabled_dataset_filter(repo: LoadedDefinitionRepo) -> set[str] | None:
@@ -127,153 +132,227 @@ def _enabled_dataset_filter(repo: LoadedDefinitionRepo) -> set[str] | None:
     return set(repo.enabled_datasets)
 
 
-def _parse_repo_datasets(repo: LoadedDefinitionRepo) -> dict[str, dict[str, Any]]:
-    """Dataset name -> parsed YAML for ``datasets/*.yml`` under ``repo.path``."""
-    ds_dir = repo.path / "datasets"
-    if not ds_dir.is_dir():
-        return {}
-    out: dict[str, dict[str, Any]] = {}
-    for path in sorted(ds_dir.glob("*.yml")):
-        doc = load_yaml(path)
-        if not isinstance(doc, dict):
-            continue
-        raw_name = doc.get("name")
-        if not isinstance(raw_name, str):
-            continue
-        out[raw_name] = doc
-    return out
+def _filter_enabled(
+    all_items: dict[str, dict[str, Any]],
+    filt: set[str] | None,
+) -> dict[str, dict[str, Any]]:
+    if filt is None:
+        return dict(all_items)
+    return {k: v for k, v in all_items.items() if k in filt}
+
+
+def _table_keys_for_docs(
+    repo: LoadedDefinitionRepo,
+    docs: dict[str, dict[str, Any]],
+) -> list[tuple[str, str, str, str]]:
+    keys: list[tuple[str, str, str, str]] = []
+    for doc_name, doc in sorted(docs.items()):
+        tables = doc.get("tables")
+        if not isinstance(tables, list):
+            raise ValueError(f"{repo.name}: {doc_name!r}: tables must be a list")
+        for t in tables:
+            if not isinstance(t, dict):
+                raise ValueError(f"{repo.name}: {doc_name!r}: each table must be a mapping")
+            tn = t.get("name")
+            if not isinstance(tn, str):
+                raise ValueError(f"{repo.name}: {doc_name!r}: each table needs a string name")
+            keys.append(table_asset_key_parts(repo.name, repo.schema, doc_name, tn))
+    return keys
+
+
+def _resolve_in_repo_dep_tables(
+    repo: LoadedDefinitionRepo,
+    dep_name: str,
+    parsed_ds: dict[str, dict[str, Any]],
+    parsed_dj: dict[str, dict[str, Any]],
+) -> list[tuple[str, str, str, str]]:
+    if dep_name in parsed_ds:
+        peer = parsed_ds[dep_name]
+        peer_tables = peer.get("tables")
+        assert isinstance(peer_tables, list)
+        return [
+            table_asset_key_parts(repo.name, repo.schema, dep_name, str(pt["name"]))
+            for pt in peer_tables
+            if isinstance(pt, dict) and isinstance(pt.get("name"), str)
+        ]
+    if dep_name in parsed_dj:
+        peer = parsed_dj[dep_name]
+        peer_tables = peer.get("tables")
+        assert isinstance(peer_tables, list)
+        return [
+            table_asset_key_parts(repo.name, repo.schema, dep_name, str(pt["name"]))
+            for pt in peer_tables
+            if isinstance(pt, dict) and isinstance(pt.get("name"), str)
+        ]
+    raise ValueError(
+        f"{repo.name}: depends_on {dep_name!r} is missing or not enabled for this repo"
+    )
+
+
+def _append_specs_for_asset_group(
+    *,
+    specs: list[TableSkeletonSpec],
+    repo: LoadedDefinitionRepo,
+    group_name: str,
+    doc: dict[str, Any],
+    asset_kind: str,
+    yaml_relpath: str,
+    parsed_ds: dict[str, dict[str, Any]],
+    parsed_dj: dict[str, dict[str, Any]],
+    manifest_dep_keys: list[tuple[str, str, str, str]],
+) -> None:
+    tables = doc.get("tables")
+    if not isinstance(tables, list):
+        raise ValueError(f"{repo.name}: {group_name!r}: tables must be a list")
+    ds_level_deps = doc.get("depends_on") or []
+    if not isinstance(ds_level_deps, list):
+        raise ValueError(f"{repo.name}: {group_name!r}: depends_on must be a list when present")
+    for dep in ds_level_deps:
+        if not isinstance(dep, str):
+            raise ValueError(f"{repo.name}: {group_name!r}: depends_on entries must be strings")
+
+    raw_sched = doc.get("schedule")
+    schedule_cron: str | None
+    if isinstance(raw_sched, str) and raw_sched.strip():
+        schedule_cron = raw_sched.strip()
+        _validate_dataset_schedule_cron(repo.name, group_name, schedule_cron)
+    else:
+        schedule_cron = None
+
+    raw_fresh = doc.get("freshness_sla_hours")
+    freshness_sla: float | None
+    if isinstance(raw_fresh, (int, float)):
+        freshness_sla = float(raw_fresh)
+        if freshness_sla <= 0:
+            raise ValueError(
+                f"{repo.name}: {group_name!r}: freshness_sla_hours must be positive when set"
+            )
+    else:
+        freshness_sla = None
+
+    raw_contract = doc.get("schema_contract")
+    schema_contract: str | None
+    if isinstance(raw_contract, str) and raw_contract.strip():
+        schema_contract = raw_contract.strip()
+    else:
+        schema_contract = None
+
+    for t in tables:
+        if not isinstance(t, dict):
+            raise ValueError(f"{repo.name}: {group_name!r}: each table must be a mapping")
+        tn = str(t["name"])
+        my_key = table_asset_key_parts(repo.name, repo.schema, group_name, tn)
+        dep_keys: list[tuple[str, str, str, str]] = []
+        dep_keys.extend(manifest_dep_keys)
+        for dep_name in ds_level_deps:
+            dep_keys.extend(
+                _resolve_in_repo_dep_tables(repo, str(dep_name), parsed_ds, parsed_dj)
+            )
+        seen: set[tuple[str, str, str, str]] = set()
+        ordered: list[tuple[str, str, str, str]] = []
+        for k in dep_keys:
+            if k == my_key or k in seen:
+                continue
+            seen.add(k)
+            ordered.append(k)
+        specs.append(
+            TableSkeletonSpec(
+                repo_name=repo.name,
+                schema=repo.schema,
+                dataset_name=group_name,
+                table_name=tn,
+                depends_on_table_keys=tuple(ordered),
+                asset_kind=asset_kind,
+                schedule_cron=schedule_cron,
+                freshness_sla_hours=freshness_sla,
+                schema_contract=schema_contract,
+                dataset_yaml_relpath=yaml_relpath,
+            )
+        )
 
 
 def collect_table_skeleton_specs(repos: Sequence[LoadedDefinitionRepo]) -> list[TableSkeletonSpec]:
     """Compute skeleton asset keys and Dagster-level dependencies.
 
-    * ``enabled_datasets`` on each :class:`LoadedDefinitionRepo` filters which datasets are emitted.
-    * Dataset-level ``depends_on`` (names within the same repo) become edges to every table in those datasets.
-    * Manifest-level ``depends_on`` (other repo names) become edges to every table in those repos (respecting their
-      ``enabled_datasets`` filters).
+    * ``enabled_datasets`` filters both ``datasets/*.yml`` and ``derived_jobs/*.yml`` by name.
+    * Dataset/derived ``depends_on`` (names within the same repo) become edges to every table in those assets.
+    * Manifest-level ``depends_on`` (other repo names) become edges to every table in those repos.
     """
     by_name: dict[str, LoadedDefinitionRepo] = {r.name: r for r in repos}
     enabled = {r.name: _enabled_dataset_filter(r) for r in repos}
 
-    # Per repo: dataset name -> yaml
-    parsed: dict[str, dict[str, dict[str, Any]]] = {}
+    parsed_ds: dict[str, dict[str, dict[str, Any]]] = {}
+    parsed_dj: dict[str, dict[str, dict[str, Any]]] = {}
     for r in repos:
-        all_ds = _parse_repo_datasets(r)
-        filt = enabled[r.name]
-        if filt is None:
-            parsed[r.name] = dict(all_ds)
-        else:
-            parsed[r.name] = {k: v for k, v in all_ds.items() if k in filt}
+        parsed_ds[r.name] = _filter_enabled(_parse_repo_datasets(r), enabled[r.name])
+        parsed_dj[r.name] = _filter_enabled(_parse_repo_derived_jobs(r), enabled[r.name])
 
-    # Validate dataset-level depends_on targets exist after filtering
     for r in repos:
-        for ds_name, doc in parsed[r.name].items():
+        for ds_name, doc in parsed_ds[r.name].items():
             raw_deps = doc.get("depends_on") or []
             if not isinstance(raw_deps, list):
                 raise ValueError(f"{r.name}: dataset {ds_name!r}: depends_on must be a list when present")
             for dep in raw_deps:
                 if not isinstance(dep, str):
                     raise ValueError(f"{r.name}: dataset {ds_name!r}: depends_on entries must be strings")
-                if dep not in parsed[r.name]:
+                if dep not in parsed_ds[r.name]:
                     raise ValueError(
                         f"{r.name}: dataset {ds_name!r} depends_on {dep!r} "
                         f"which is missing or not enabled for this repo"
                     )
+        for job_name, doc in parsed_dj[r.name].items():
+            raw_deps = doc.get("depends_on") or []
+            if not isinstance(raw_deps, list):
+                raise ValueError(f"{r.name}: derived job {job_name!r}: depends_on must be a list when present")
+            for dep in raw_deps:
+                if not isinstance(dep, str):
+                    raise ValueError(
+                        f"{r.name}: derived job {job_name!r}: depends_on entries must be strings"
+                    )
+                if dep not in parsed_ds[r.name] and dep not in parsed_dj[r.name]:
+                    raise ValueError(
+                        f"{r.name}: derived job {job_name!r} depends_on {dep!r} "
+                        f"which is missing or not enabled for this repo"
+                    )
 
-    # Precompute table keys per repo for manifest-level deps
     repo_table_keys: dict[str, list[tuple[str, str, str, str]]] = {}
     for r in repos:
-        keys: list[tuple[str, str, str, str]] = []
-        for ds_name, doc in sorted(parsed[r.name].items()):
-            tables = doc.get("tables")
-            if not isinstance(tables, list):
-                raise ValueError(f"{r.name}: dataset {ds_name!r}: tables must be a list")
-            for t in tables:
-                if not isinstance(t, dict):
-                    raise ValueError(f"{r.name}: dataset {ds_name!r}: each table must be a mapping")
-                tn = t.get("name")
-                if not isinstance(tn, str):
-                    raise ValueError(f"{r.name}: dataset {ds_name!r}: each table needs a string name")
-                keys.append(table_asset_key_parts(r.name, r.schema, ds_name, tn))
+        keys = _table_keys_for_docs(r, parsed_ds[r.name])
+        keys.extend(_table_keys_for_docs(r, parsed_dj[r.name]))
         repo_table_keys[r.name] = keys
 
     specs: list[TableSkeletonSpec] = []
     for r in repos:
-        for ds_name, doc in sorted(parsed[r.name].items()):
-            tables = doc["tables"]
-            assert isinstance(tables, list)
-            ds_level_deps = doc.get("depends_on") or []
-            assert isinstance(ds_level_deps, list)
+        manifest_dep_keys: list[tuple[str, str, str, str]] = []
+        for dep_repo_name in r.depends_on:
+            if dep_repo_name not in by_name:
+                raise ValueError(f"{r.name}: depends_on references unknown repo {dep_repo_name!r}")
+            manifest_dep_keys.extend(repo_table_keys[dep_repo_name])
 
-            raw_sched = doc.get("schedule")
-            schedule_cron: str | None
-            if isinstance(raw_sched, str) and raw_sched.strip():
-                schedule_cron = raw_sched.strip()
-                _validate_dataset_schedule_cron(r.name, ds_name, schedule_cron)
-            else:
-                schedule_cron = None
-
-            raw_fresh = doc.get("freshness_sla_hours")
-            freshness_sla: float | None
-            if isinstance(raw_fresh, (int, float)):
-                freshness_sla = float(raw_fresh)
-                if freshness_sla <= 0:
-                    raise ValueError(
-                        f"{r.name}: dataset {ds_name!r}: freshness_sla_hours must be positive when set"
-                    )
-            else:
-                freshness_sla = None
-
-            raw_contract = doc.get("schema_contract")
-            schema_contract: str | None
-            if isinstance(raw_contract, str) and raw_contract.strip():
-                schema_contract = raw_contract.strip()
-            else:
-                schema_contract = None
-
-            ds_yaml_relpath = f"datasets/{ds_name}.yml"
-
-            manifest_dep_keys: list[tuple[str, str, str, str]] = []
-            for dep_repo_name in r.depends_on:
-                if dep_repo_name not in by_name:
-                    raise ValueError(f"{r.name}: depends_on references unknown repo {dep_repo_name!r}")
-                manifest_dep_keys.extend(repo_table_keys[dep_repo_name])
-
-            for t in tables:
-                tn = str(t["name"])
-                my_key = table_asset_key_parts(r.name, r.schema, ds_name, tn)
-                dep_keys: list[tuple[str, str, str, str]] = []
-                dep_keys.extend(manifest_dep_keys)
-                for dep_ds in ds_level_deps:
-                    dep_ds = str(dep_ds)
-                    peer = parsed[r.name][dep_ds]
-                    peer_tables = peer.get("tables")
-                    assert isinstance(peer_tables, list)
-                    for pt in peer_tables:
-                        assert isinstance(pt, dict)
-                        ptn = str(pt["name"])
-                        dep_keys.append(table_asset_key_parts(r.name, r.schema, dep_ds, ptn))
-                # Drop self-edges (e.g. FK-only same-dataset refs) and dedupe preserving order
-                seen: set[tuple[str, str, str, str]] = set()
-                ordered: list[tuple[str, str, str, str]] = []
-                for k in dep_keys:
-                    if k == my_key or k in seen:
-                        continue
-                    seen.add(k)
-                    ordered.append(k)
-                specs.append(
-                    TableSkeletonSpec(
-                        repo_name=r.name,
-                        schema=r.schema,
-                        dataset_name=ds_name,
-                        table_name=tn,
-                        depends_on_table_keys=tuple(ordered),
-                        schedule_cron=schedule_cron,
-                        freshness_sla_hours=freshness_sla,
-                        schema_contract=schema_contract,
-                        dataset_yaml_relpath=ds_yaml_relpath,
-                    )
-                )
+        for ds_name, doc in sorted(parsed_ds[r.name].items()):
+            _append_specs_for_asset_group(
+                specs=specs,
+                repo=r,
+                group_name=ds_name,
+                doc=doc,
+                asset_kind="dataset",
+                yaml_relpath=f"datasets/{ds_name}.yml",
+                parsed_ds=parsed_ds[r.name],
+                parsed_dj=parsed_dj[r.name],
+                manifest_dep_keys=manifest_dep_keys,
+            )
+        for job_name, doc in sorted(parsed_dj[r.name].items()):
+            _append_specs_for_asset_group(
+                specs=specs,
+                repo=r,
+                group_name=job_name,
+                doc=doc,
+                asset_kind="derived",
+                yaml_relpath=f"derived_jobs/{job_name}.yml",
+                parsed_ds=parsed_ds[r.name],
+                parsed_dj=parsed_dj[r.name],
+                manifest_dep_keys=manifest_dep_keys,
+            )
     return specs
 
 
@@ -288,6 +367,8 @@ _EMBEDDED_EXAMPLE_COLLECTION_ROW: dict[str, Any] = {
         "sample_csv",
         "bundle_demo",
         "s3_fixture",
+        "greeting_letter_counts",
+        "building_rollups",
     ],
 }
 
@@ -452,33 +533,48 @@ def dagster_definitions_from_load_result(
             from dagster import MaterializeResult, MetadataValue
 
             from pipeline.dataset_materialize import MaterializeError, materialize_dataset_table
+            from pipeline.derived_load import MaterializeDerivedError, materialize_derived_job_table
 
             repo = repo_by_name.get(s.repo_name)
             if repo is None:
                 raise RuntimeError(f"unknown repo {s.repo_name!r}")
             try:
-                result = materialize_dataset_table(
-                    repo=repo,
-                    schema=s.schema,
-                    dataset_name=s.dataset_name,
-                    table_name=s.table_name,
-                    source_credentials=load_result.source_credentials,
-                    credential_decls=credential_decls,
-                    manifest_path=load_result.manifest_path,
-                    provision=True,
-                )
-            except MaterializeError as e:
+                if s.asset_kind == "derived":
+                    result = materialize_derived_job_table(
+                        repo=repo,
+                        schema=s.schema,
+                        job_name=s.dataset_name,
+                        table_name=s.table_name,
+                        work_dir=load_result.work_dir,
+                        deployment=load_result.deployment,
+                        manifest_path=load_result.manifest_path,
+                        provision=True,
+                    )
+                else:
+                    result = materialize_dataset_table(
+                        repo=repo,
+                        schema=s.schema,
+                        dataset_name=s.dataset_name,
+                        table_name=s.table_name,
+                        source_credentials=load_result.source_credentials,
+                        credential_decls=credential_decls,
+                        manifest_path=load_result.manifest_path,
+                        provision=True,
+                    )
+            except (MaterializeError, MaterializeDerivedError) as e:
                 raise RuntimeError(str(e)) from e
+            kind = "derived_load" if s.asset_kind == "derived" else "extract_load"
             meta: dict[str, Any] = {
-                "opendata_kind": MetadataValue.text("extract_load"),
+                "opendata_kind": MetadataValue.text(kind),
                 "opendata_repo": MetadataValue.text(s.repo_name),
                 "opendata_schema": MetadataValue.text(s.schema),
                 "opendata_dataset": MetadataValue.text(s.dataset_name),
                 "opendata_table": MetadataValue.text(s.table_name),
-                "unexpected_new_headers": MetadataValue.json(
-                    list(result.unexpected_new_headers)
-                ),
             }
+            if s.asset_kind == "dataset":
+                meta["unexpected_new_headers"] = MetadataValue.json(
+                    list(result.unexpected_new_headers)
+                )
             if result.row_count is not None:
                 meta["row_count"] = MetadataValue.int(result.row_count)
             return MaterializeResult(metadata=meta)
@@ -558,14 +654,16 @@ def dagster_definitions_from_load_result(
             deps=[AssetKey(list(k)) for k in spec.depends_on_table_keys],
             group_name=spec.schema,
             description=(
-                f"Dataset table ({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
-                "materialize runs extract→staging→load when DATABASE_URL is set."
+                f"{'Derived' if spec.asset_kind == 'derived' else 'Dataset'} table "
+                f"({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
+                "materialize runs full pipeline when DATABASE_URL is set."
             ),
             metadata={
                 "opendata_repo": spec.repo_name,
                 "opendata_schema": spec.schema,
                 "opendata_dataset": spec.dataset_name,
                 "opendata_table": spec.table_name,
+                "opendata_asset_kind": spec.asset_kind,
                 **(
                     {"freshness_sla_hours": float(spec.freshness_sla_hours)}
                     if spec.freshness_sla_hours is not None

@@ -1,0 +1,29 @@
+name: building_rollups
+description: Per-building unit counts and large-building list (multi-table FK bundle).
+entrypoint: derived.building_rollups:main
+depends_on:
+  - bundle_demo
+tables:
+  - name: building_stats
+    columns:
+      - name: building_id
+        type: bigint
+      - name: name
+        type: text
+      - name: unit_count
+        type: bigint
+    indexes:
+      - [building_id]
+  - name: large_buildings
+    columns:
+      - name: building_id
+        type: bigint
+      - name: unit_count
+        type: bigint
+    indexes:
+      - [building_id]
+    foreign_keys:
+      - columns: [building_id]
+        references:
+          table: building_stats
+          columns: [building_id]

@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from pipeline.definitions import LoadedDefinitionRepo
 from pipeline.extract.orchestrate import ExtractOrchestrationError, extract_dataset_to_staging, temp_work_dir
-from pipeline.factory import _parse_repo_datasets
+from pipeline.repo_yaml import parse_repo_datasets
 from pipeline.load.loader import LoaderError, load_dataset_tables_from_csv
 from pipeline.provisioning import load_deployment_manifest, run_provisioning
 
@@ -41,7 +41,7 @@ def _dataset_doc_for_spec(
     repo: LoadedDefinitionRepo,
     dataset_name: str,
 ) -> dict[str, Any]:
-    parsed = _parse_repo_datasets(repo)
+    parsed = parse_repo_datasets(repo)
     doc = parsed.get(dataset_name)
     if doc is None:
         raise MaterializeError(

@@ -1,4 +1,5 @@
 api_version: opendata-etl.definitions/v1
+profile: lite
 notes: |
   Local developer manifest — example collection plus file:// nycdb2 for Step 15.
   Set OPENDATA_DAGSTER_DEFINITION_LOAD=clone and OPENDATA_DAGSTER_MATERIALIZE=full with DATABASE_URL for E2E.

@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Optional image for OPENDATA_DERIVED_RUNNER=docker (lite profile).
+# Build from framework repo root:
+#   docker build -f examples/definition-repo/docker/Dockerfile.derived -t opendata-derived-example:local .
+
+FROM python:3.12-slim-bookworm
+
+WORKDIR /workspace
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/workspace
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libpq5 \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md LICENSE ./
+COPY pipeline ./pipeline
+COPY schemas ./schemas
+COPY examples/definition-repo/python ./examples/definition-repo/python
+COPY examples/definition-repo/derived_jobs ./examples/definition-repo/derived_jobs
+COPY examples/definition-repo/repo.yml ./examples/definition-repo/repo.yml
+
+RUN pip install --no-cache-dir --upgrade pip \
+  && pip install --no-cache-dir "psycopg[binary]>=3.1.18" "PyYAML>=6.0.1"
+
+CMD ["python", "-c", "print('derived worker image; invoked by opendata-etl derived runner')"]

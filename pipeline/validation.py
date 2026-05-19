@@ -80,6 +80,17 @@ def validate_definition_repo(repo_dir: Path) -> None:
         for path in sorted(api_dir.glob("*.yml")):
             validate_json(load_schema("api_endpoint.schema.json"), load_yaml(path), str(path))
 
+    dj_dir = repo_dir / "derived_jobs"
+    if dj_dir.is_dir():
+        for path in sorted(dj_dir.glob("*.yml")):
+            validate_json(load_schema("derived_job.schema.json"), load_yaml(path), str(path))
+        repo_meta = load_yaml(repo_yml)
+        if isinstance(repo_meta, dict) and not repo_meta.get("derived_python"):
+            print(
+                f"warning: {repo_dir} has derived_jobs/ but repo.yml missing derived_python: true",
+                file=sys.stderr,
+            )
+
 
 def validate_deployment_document(data: Any, label: str) -> dict[str, Any]:
     if not isinstance(data, dict):

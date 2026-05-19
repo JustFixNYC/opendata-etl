@@ -1,4 +1,5 @@
 api_version: opendata-etl.definitions/v1
+profile: scaled
 notes: Illustrative multi-repo production manifest (pinned refs, grants, subset of datasets).
 source_credentials:
   fake_source_reader:

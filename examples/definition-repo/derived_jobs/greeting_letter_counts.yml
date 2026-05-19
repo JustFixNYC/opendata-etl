@@ -1,0 +1,14 @@
+name: greeting_letter_counts
+description: Letter frequencies from sample_csv.rows.label (example derived job).
+entrypoint: derived.greeting_letter_counts:main
+depends_on:
+  - sample_csv
+tables:
+  - name: letter_counts
+    columns:
+      - name: letter
+        type: text
+      - name: count
+        type: bigint
+    indexes:
+      - [letter]
