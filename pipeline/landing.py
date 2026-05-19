@@ -318,9 +318,3 @@ def resolve_table_csv_paths_for_load(
         tn: resolve_csv_path_for_load(uri, work_dir=work_dir, environ=environ)
         for tn, uri in table_paths.items()
     }
-
-
-# Backward-compatible names used by early Step 7 extract landing shim.
-LandingWriteError = LandingError
-write_landing_bytes = upload_bytes
-write_landing_fileobj = upload_fileobj

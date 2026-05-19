@@ -16,7 +16,7 @@ from pipeline.credentials import (
     resolve_source_aws,
 )
 from pipeline.extract.http import download_bytes
-from pipeline.extract.landing import landing_object_key, write_landing_bytes
+from pipeline.landing import landing_object_key, upload_bytes
 from pipeline.extract.s3_source import read_s3_object_bytes
 from pipeline.extract.shapefile import (
     Ogr2ogrError,
@@ -123,7 +123,7 @@ def test_s3_source_read_and_landing_write_roundtrip() -> None:
     }
     key = landing_object_key(dataset_name="sample_csv", table_name="rows", run_date="2030-05-01", extension="csv")
     assert key == "extract/sample_csv/2030-05-01/rows.csv"
-    write_landing_bytes(body, key=key, content_type="text/csv", environ=land_env)
+    upload_bytes(body, key=key, content_type="text/csv", environ=land_env)
     assert cli.get_object(Bucket="landing-bucket", Key=key)["Body"].read() == payload
 
 

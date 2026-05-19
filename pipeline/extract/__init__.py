@@ -4,11 +4,7 @@
 from __future__ import annotations
 
 from pipeline.extract.http import download_bytes, download_text
-from pipeline.extract.landing import (
-    default_landing_prefix,
-    landing_object_key,
-    write_landing_bytes,
-)
+from pipeline.landing import default_landing_prefix, landing_object_key, upload_bytes
 from pipeline.extract.s3_source import read_s3_object_bytes
 from pipeline.extract.orchestrate import (
     ExtractOrchestrationError,
@@ -43,5 +39,5 @@ __all__ = [
     "ogr2ogr_crs_flags_from_source",
     "read_s3_object_bytes",
     "project_csv_to_staging",
-    "write_landing_bytes",
+    "upload_bytes",
 ]
