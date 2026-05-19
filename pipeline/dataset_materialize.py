@@ -50,24 +50,19 @@ def _dataset_doc_for_spec(
     return doc
 
 
-def materialize_dataset_table(
+def materialize_dataset_bundle(
     *,
     repo: LoadedDefinitionRepo,
     schema: str,
     dataset_name: str,
-    table_name: str,
     source_credentials: Mapping[str, Any],
     credential_decls: Mapping[str, Any],
     manifest_path: Path | None = None,
     work_dir: Path | None = None,
     environ: Mapping[str, str] | None = None,
     provision: bool = True,
-) -> MaterializeTableResult:
-    """Extract every table in the dataset, COPY+swap into Postgres, return metadata for ``table_name``.
-
-    Each table asset in a multi-table dataset runs the full dataset load so sibling tables stay
-    consistent (atomic swap). Re-running any table asset refreshes the whole dataset.
-    """
+) -> dict[str, MaterializeTableResult]:
+    """Extract every table in the dataset once, COPY+swap atomically, return per-table metadata."""
     envmap = environ if environ is not None else os.environ
     dsn = _database_url(envmap)
     doc = _dataset_doc_for_spec(repo, dataset_name)
@@ -75,9 +70,13 @@ def materialize_dataset_table(
     if not isinstance(tables, list):
         raise MaterializeError(f"{dataset_name}: tables must be a list")
 
-    table_names = [t.get("name") for t in tables if isinstance(t, dict)]
-    if table_name not in table_names:
-        raise MaterializeError(f"{dataset_name}: no table named {table_name!r}")
+    table_names = [
+        str(t["name"])
+        for t in tables
+        if isinstance(t, dict) and isinstance(t.get("name"), str)
+    ]
+    if not table_names:
+        raise MaterializeError(f"{dataset_name}: no tables declared")
 
     label = f"{repo.name}/{dataset_name}"
     extract_root = work_dir if work_dir is not None else temp_work_dir()
@@ -100,7 +99,6 @@ def materialize_dataset_table(
         run_provisioning(deployment, dsn, table_owner_role=owner)
 
     table_csv_paths = {tn: staging[tn].staging_csv_path for tn in staging}
-    unexpected = staging[table_name].unexpected_new_headers
 
     try:
         import psycopg
@@ -108,7 +106,7 @@ def materialize_dataset_table(
         raise MaterializeError("psycopg is required for dataset materialization") from e
 
     owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
-    row_count: int | None = None
+    row_counts: dict[str, int | None] = {tn: None for tn in table_names}
     try:
         with psycopg.connect(dsn, autocommit=False) as conn:
             with conn.cursor() as cur:
@@ -121,12 +119,11 @@ def materialize_dataset_table(
                 table_csv_paths=table_csv_paths,
                 table_owner_role=owner,
             )
-            with conn.cursor() as cur:
-                cur.execute(
-                    f'SELECT count(*) FROM "{schema}"."{table_name}"'
-                )
-                row = cur.fetchone()
-                row_count = int(row[0]) if row else None
+            for tn in table_names:
+                with conn.cursor() as cur:
+                    cur.execute(f'SELECT count(*) FROM "{schema}"."{tn}"')
+                    row = cur.fetchone()
+                    row_counts[tn] = int(row[0]) if row else None
             conn.commit()
     except LoaderError as e:
         raise MaterializeError(str(e)) from e
@@ -136,8 +133,41 @@ def materialize_dataset_table(
         if owned_tmp and extract_root.exists():
             shutil.rmtree(extract_root, ignore_errors=True)
 
-    return MaterializeTableResult(
-        table_name=table_name,
-        row_count=row_count,
-        unexpected_new_headers=unexpected,
+    return {
+        tn: MaterializeTableResult(
+            table_name=tn,
+            row_count=row_counts[tn],
+            unexpected_new_headers=staging[tn].unexpected_new_headers,
+        )
+        for tn in table_names
+    }
+
+
+def materialize_dataset_table(
+    *,
+    repo: LoadedDefinitionRepo,
+    schema: str,
+    dataset_name: str,
+    table_name: str,
+    source_credentials: Mapping[str, Any],
+    credential_decls: Mapping[str, Any],
+    manifest_path: Path | None = None,
+    work_dir: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+    provision: bool = True,
+) -> MaterializeTableResult:
+    """Materialize one table via :func:`materialize_dataset_bundle` (full dataset load)."""
+    bundle = materialize_dataset_bundle(
+        repo=repo,
+        schema=schema,
+        dataset_name=dataset_name,
+        source_credentials=source_credentials,
+        credential_decls=credential_decls,
+        manifest_path=manifest_path,
+        work_dir=work_dir,
+        environ=environ,
+        provision=provision,
     )
+    if table_name not in bundle:
+        raise MaterializeError(f"{dataset_name}: no table named {table_name!r}")
+    return bundle[table_name]

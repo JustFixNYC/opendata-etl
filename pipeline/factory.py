@@ -117,13 +117,74 @@ def _sanitize_python_identifier(name: str) -> str:
 
 
 def python_fn_name_for_table_asset(spec: TableSkeletonSpec) -> str:
-    """Stable, unique Python function name for dynamically built Dagster assets."""
+    """Stable, unique Python function name for dynamically built Dagster asset checks."""
     base = "__".join(
         _sanitize_python_identifier(x)
         for x in (spec.repo_name, spec.schema, spec.dataset_name, spec.table_name)
     )
     prefix = "opendata_derived_table" if spec.asset_kind == "derived" else "opendata_dataset_table"
     return f"{prefix}__{base}"
+
+
+def bundle_group_key(spec: TableSkeletonSpec) -> tuple[str, str, str, str]:
+    """Group key for one YAML dataset or derived job (repo, schema, name, kind)."""
+    return (spec.repo_name, spec.schema, spec.dataset_name, spec.asset_kind)
+
+
+def python_fn_name_for_bundle(
+    *,
+    repo_name: str,
+    schema: str,
+    group_name: str,
+    asset_kind: str,
+) -> str:
+    """Stable Python function name for a dataset/derived ``@multi_asset`` bundle."""
+    base = "__".join(
+        _sanitize_python_identifier(x) for x in (repo_name, schema, group_name)
+    )
+    prefix = "opendata_derived_bundle" if asset_kind == "derived" else "opendata_dataset_bundle"
+    return f"{prefix}__{base}"
+
+
+@dataclass(frozen=True)
+class TableBundleGroup:
+    """One multi-table dataset or derived job and its table-level asset specs."""
+
+    repo_name: str
+    schema: str
+    group_name: str
+    asset_kind: str
+    specs: tuple[TableSkeletonSpec, ...]
+
+    @property
+    def bundle_key(self) -> tuple[str, str, str, str]:
+        return (self.repo_name, self.schema, self.group_name, self.asset_kind)
+
+
+def group_table_skeleton_specs(specs: Sequence[TableSkeletonSpec]) -> list[TableBundleGroup]:
+    """Group table specs into one bundle per YAML dataset or derived job."""
+    grouped: dict[tuple[str, str, str, str], list[TableSkeletonSpec]] = {}
+    for spec in specs:
+        grouped.setdefault(bundle_group_key(spec), []).append(spec)
+    out: list[TableBundleGroup] = []
+    for key in sorted(grouped.keys()):
+        table_specs = tuple(sorted(grouped[key], key=lambda s: s.table_name))
+        repo_name, schema, group_name, asset_kind = key
+        crons = {s.schedule_cron for s in table_specs}
+        if len(crons) > 1:
+            raise ValueError(
+                f"{repo_name}: {group_name!r}: inconsistent schedule cron across tables"
+            )
+        out.append(
+            TableBundleGroup(
+                repo_name=repo_name,
+                schema=schema,
+                group_name=group_name,
+                asset_kind=asset_kind,
+                specs=table_specs,
+            )
+        )
+    return out
 
 
 def _enabled_dataset_filter(repo: LoadedDefinitionRepo) -> set[str] | None:
@@ -488,12 +549,15 @@ def dagster_definitions_from_load_result(
         from dagster import (
             AssetKey,
             AssetSelection,
+            AssetSpec,
             DefaultScheduleStatus,
             Definitions,
+            MaterializeResult,
+            MetadataValue,
             ScheduleDefinition,
-            asset,
             asset_check,
             define_asset_job,
+            multi_asset,
         )
     except ImportError as e:  # pragma: no cover
         raise RuntimeError(
@@ -505,8 +569,10 @@ def dagster_definitions_from_load_result(
     from pipeline.notifications import slack_run_failure_sensors
 
     specs = collect_table_skeleton_specs(load_result.repos)
+    bundle_groups = group_table_skeleton_specs(specs)
     assets: list[Any] = []
     asset_checks: list[Any] = []
+    bundle_def_by_key: dict[tuple[str, str, str, str], Any] = {}
     repo_by_name = {r.name: r for r in load_result.repos}
     cred_decls_raw = load_result.deployment.get("source_credentials") or {}
     credential_decls = cred_decls_raw if isinstance(cred_decls_raw, dict) else {}
@@ -519,84 +585,113 @@ def dagster_definitions_from_load_result(
             f"Unknown OPENDATA_DAGSTER_MATERIALIZE={raw!r} (expected auto, skeleton, or full)"
         )
 
-    def _make_compute_fn(s: TableSkeletonSpec) -> Callable[..., Any]:
-        def _compute_skeleton() -> dict[str, str]:
-            return {
-                "kind": "opendata_etl_skeleton",
-                "repo": s.repo_name,
-                "schema": s.schema,
-                "dataset": s.dataset_name,
-                "table": s.table_name,
-            }
+    def _materialize_result_metadata(
+        s: TableSkeletonSpec,
+        *,
+        kind: str,
+        row_count: int | None = None,
+        unexpected_new_headers: tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
+        meta: dict[str, Any] = {
+            "opendata_kind": MetadataValue.text(kind),
+            "opendata_repo": MetadataValue.text(s.repo_name),
+            "opendata_schema": MetadataValue.text(s.schema),
+            "opendata_dataset": MetadataValue.text(s.dataset_name),
+            "opendata_table": MetadataValue.text(s.table_name),
+        }
+        if s.asset_kind == "dataset" and unexpected_new_headers is not None:
+            meta["unexpected_new_headers"] = MetadataValue.json(list(unexpected_new_headers))
+        if row_count is not None:
+            meta["row_count"] = MetadataValue.int(row_count)
+        return meta
+
+    def _make_bundle_compute_fn(group: TableBundleGroup) -> Callable[..., Any]:
+        def _compute_skeleton() -> Any:
+            for s in group.specs:
+                yield MaterializeResult(
+                    asset_key=AssetKey(list(s.asset_key_parts)),
+                    metadata=_materialize_result_metadata(
+                        s,
+                        kind="opendata_etl_skeleton",
+                    ),
+                )
 
         def _compute_full() -> Any:
-            from dagster import MaterializeResult, MetadataValue
+            from pipeline.dataset_materialize import MaterializeError, materialize_dataset_bundle
+            from pipeline.derived_load import MaterializeDerivedError, materialize_derived_job_bundle
 
-            from pipeline.dataset_materialize import MaterializeError, materialize_dataset_table
-            from pipeline.derived_load import MaterializeDerivedError, materialize_derived_job_table
-
-            repo = repo_by_name.get(s.repo_name)
+            repo = repo_by_name.get(group.repo_name)
             if repo is None:
-                raise RuntimeError(f"unknown repo {s.repo_name!r}")
+                raise RuntimeError(f"unknown repo {group.repo_name!r}")
             try:
-                if s.asset_kind == "derived":
-                    result = materialize_derived_job_table(
+                if group.asset_kind == "derived":
+                    results = materialize_derived_job_bundle(
                         repo=repo,
-                        schema=s.schema,
-                        job_name=s.dataset_name,
-                        table_name=s.table_name,
+                        schema=group.schema,
+                        job_name=group.group_name,
                         work_dir=load_result.work_dir,
                         deployment=load_result.deployment,
                         manifest_path=load_result.manifest_path,
                         provision=True,
                     )
+                    load_kind = "derived_load"
                 else:
-                    result = materialize_dataset_table(
+                    results = materialize_dataset_bundle(
                         repo=repo,
-                        schema=s.schema,
-                        dataset_name=s.dataset_name,
-                        table_name=s.table_name,
+                        schema=group.schema,
+                        dataset_name=group.group_name,
                         source_credentials=load_result.source_credentials,
                         credential_decls=credential_decls,
                         manifest_path=load_result.manifest_path,
                         provision=True,
                     )
+                    load_kind = "extract_load"
             except (MaterializeError, MaterializeDerivedError) as e:
                 raise RuntimeError(str(e)) from e
-            kind = "derived_load" if s.asset_kind == "derived" else "extract_load"
-            meta: dict[str, Any] = {
-                "opendata_kind": MetadataValue.text(kind),
-                "opendata_repo": MetadataValue.text(s.repo_name),
-                "opendata_schema": MetadataValue.text(s.schema),
-                "opendata_dataset": MetadataValue.text(s.dataset_name),
-                "opendata_table": MetadataValue.text(s.table_name),
-            }
-            if s.asset_kind == "dataset":
-                meta["unexpected_new_headers"] = MetadataValue.json(
-                    list(result.unexpected_new_headers)
+
+            for s in group.specs:
+                result = results[s.table_name]
+                unexpected = (
+                    result.unexpected_new_headers
+                    if group.asset_kind == "dataset"
+                    else None
                 )
-            if result.row_count is not None:
-                meta["row_count"] = MetadataValue.int(result.row_count)
-            return MaterializeResult(metadata=meta)
+                yield MaterializeResult(
+                    asset_key=AssetKey(list(s.asset_key_parts)),
+                    metadata=_materialize_result_metadata(
+                        s,
+                        kind=load_kind,
+                        row_count=result.row_count,
+                        unexpected_new_headers=unexpected,
+                    ),
+                )
 
         def _compute() -> Any:
             mode = _dagster_materialize_mode()
             if mode == "skeleton":
-                return _compute_skeleton()
+                yield from _compute_skeleton()
+                return
             if mode == "full":
-                return _compute_full()
+                yield from _compute_full()
+                return
             if not (os.environ.get("DATABASE_URL") or "").strip():
-                return _compute_skeleton()
-            return _compute_full()
+                yield from _compute_skeleton()
+                return
+            yield from _compute_full()
 
-        _compute.__name__ = python_fn_name_for_table_asset(s)
+        _compute.__name__ = python_fn_name_for_bundle(
+            repo_name=group.repo_name,
+            schema=group.schema,
+            group_name=group.group_name,
+            asset_kind=group.asset_kind,
+        )
         return _compute
 
-    def _make_freshness_sla_check(s: TableSkeletonSpec, asset_def: Any) -> Any:
+    def _make_freshness_sla_check(s: TableSkeletonSpec) -> Any:
         sla_hours = float(s.freshness_sla_hours or 0.0)
         key_list = list(s.asset_key_parts)
 
-        @asset_check(asset=asset_def, name="freshness_sla_hours")
+        @asset_check(asset=AssetKey(key_list), name="freshness_sla_hours")
         def _freshness_sla_check(context):
             ev = context.instance.get_latest_materialization_event(AssetKey(key_list))
             if ev is None:
@@ -614,10 +709,10 @@ def dagster_definitions_from_load_result(
         _freshness_sla_check.__name__ = f"opendata_sla_check__{python_fn_name_for_table_asset(s)}"
         return _freshness_sla_check
 
-    def _make_unexpected_new_check(s: TableSkeletonSpec, asset_def: Any) -> Any:
+    def _make_unexpected_new_check(s: TableSkeletonSpec) -> Any:
         dataset_label = f"{s.repo_name}/{s.dataset_yaml_relpath or s.dataset_name}"
 
-        @asset_check(asset=asset_def, name="unexpected_new_source_headers")
+        @asset_check(asset=AssetKey(list(s.asset_key_parts)), name="unexpected_new_source_headers")
         def _unexpected_new_check(context):
             ev = context.instance.get_latest_materialization_event(AssetKey(list(s.asset_key_parts)))
             unexpected: list[str] | None = None
@@ -643,68 +738,81 @@ def dagster_definitions_from_load_result(
         _unexpected_new_check.__name__ = f"opendata_new_cols_check__{python_fn_name_for_table_asset(s)}"
         return _unexpected_new_check
 
-    for spec in specs:
-        fp = (
-            monitoring.freshness_policy_for_sla_hours(spec.freshness_sla_hours)
-            if spec.freshness_sla_hours is not None
-            else None
+    for group in bundle_groups:
+        asset_specs: list[AssetSpec] = []
+        for spec in group.specs:
+            fp = (
+                monitoring.freshness_policy_for_sla_hours(spec.freshness_sla_hours)
+                if spec.freshness_sla_hours is not None
+                else None
+            )
+            asset_specs.append(
+                AssetSpec(
+                    key=AssetKey(list(spec.asset_key_parts)),
+                    deps=[AssetKey(list(k)) for k in spec.depends_on_table_keys],
+                    group_name=spec.schema,
+                    skippable=True,
+                    freshness_policy=fp,
+                    description=(
+                        f"{'Derived' if spec.asset_kind == 'derived' else 'Dataset'} table "
+                        f"({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
+                        "bundle materialization runs one extract or derived job for all sibling tables."
+                    ),
+                    metadata={
+                        "opendata_repo": spec.repo_name,
+                        "opendata_schema": spec.schema,
+                        "opendata_dataset": spec.dataset_name,
+                        "opendata_table": spec.table_name,
+                        "opendata_asset_kind": spec.asset_kind,
+                        **(
+                            {"freshness_sla_hours": float(spec.freshness_sla_hours)}
+                            if spec.freshness_sla_hours is not None
+                            else {}
+                        ),
+                    },
+                )
+            )
+
+        decorated = multi_asset(specs=asset_specs, can_subset=True)(
+            _make_bundle_compute_fn(group)
         )
-        decorated = asset(
-            key=AssetKey(list(spec.asset_key_parts)),
-            deps=[AssetKey(list(k)) for k in spec.depends_on_table_keys],
-            group_name=spec.schema,
-            description=(
-                f"{'Derived' if spec.asset_kind == 'derived' else 'Dataset'} table "
-                f"({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
-                "materialize runs full pipeline when DATABASE_URL is set."
-            ),
-            metadata={
-                "opendata_repo": spec.repo_name,
-                "opendata_schema": spec.schema,
-                "opendata_dataset": spec.dataset_name,
-                "opendata_table": spec.table_name,
-                "opendata_asset_kind": spec.asset_kind,
-                **(
-                    {"freshness_sla_hours": float(spec.freshness_sla_hours)}
-                    if spec.freshness_sla_hours is not None
-                    else {}
-                ),
-            },
-            freshness_policy=fp,
-        )(_make_compute_fn(spec))
         assets.append(decorated)
-        if spec.freshness_sla_hours is not None:
-            asset_checks.append(_make_freshness_sla_check(spec, decorated))
-        asset_checks.append(_make_unexpected_new_check(spec, decorated))
+        bundle_def_by_key[group.bundle_key] = decorated
+        for spec in group.specs:
+            if spec.freshness_sla_hours is not None:
+                asset_checks.append(_make_freshness_sla_check(spec))
+            asset_checks.append(_make_unexpected_new_check(spec))
 
     from pipeline.opendata_dbt import collect_dbt_assets_and_resources
 
     dbt_assets_list, dbt_resources = collect_dbt_assets_and_resources(load_result.repos, repo_root=root)
     assets.extend(dbt_assets_list)
 
-    # One schedule per dataset that declares ``schedule:`` in YAML (UTC cron). STOPPED by default.
-    dataset_jobs: dict[tuple[str, str, str], tuple[str, list[AssetKey]]] = {}
-    for spec in specs:
-        if spec.schedule_cron is None:
+    # One schedule per YAML group that declares ``schedule:`` (UTC cron). STOPPED by default.
+    dataset_jobs: dict[tuple[str, str, str], tuple[str, Any]] = {}
+    for group in bundle_groups:
+        cron = group.specs[0].schedule_cron
+        if cron is None:
             continue
-        gkey = (spec.repo_name, spec.schema, spec.dataset_name)
-        if gkey not in dataset_jobs:
-            dataset_jobs[gkey] = (spec.schedule_cron, [])
-        cron, keys = dataset_jobs[gkey]
-        if cron != spec.schedule_cron:
-            raise ValueError(
-                f"{spec.repo_name}: dataset {spec.dataset_name!r}: inconsistent schedule cron across tables"
-            )
-        keys.append(AssetKey(list(spec.asset_key_parts)))
+        gkey = (group.repo_name, group.schema, group.group_name)
+        bundle_def = bundle_def_by_key[group.bundle_key]
+        if gkey in dataset_jobs:
+            prev_cron, _ = dataset_jobs[gkey]
+            if prev_cron != cron:
+                raise ValueError(
+                    f"{group.repo_name}: {group.group_name!r}: inconsistent schedule cron across tables"
+                )
+            continue
+        dataset_jobs[gkey] = (cron, bundle_def)
 
     schedules: list[Any] = []
-    for (repo_name, schema, dataset_name), (cron, keys) in sorted(dataset_jobs.items()):
+    for (repo_name, schema, dataset_name), (cron, bundle_def) in sorted(dataset_jobs.items()):
         job_name = (
             "opendata_ds__"
             f"{_sanitize_python_identifier(repo_name)}__{_sanitize_python_identifier(schema)}__"
             f"{_sanitize_python_identifier(dataset_name)}"
         )
-        job = define_asset_job(job_name, selection=AssetSelection.assets(*keys))
+        job = define_asset_job(job_name, selection=AssetSelection.assets(bundle_def))
         schedules.append(
             ScheduleDefinition(
                 name=f"{job_name}__schedule",

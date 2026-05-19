@@ -57,7 +57,7 @@ export OPENDATA_DERIVED_RUNNER=docker
 
 ## Dagster
 
-Derived jobs register as the same four-segment asset keys as datasets: `repo / schema / job_name / table_name`. Materializing any table asset re-runs the **full** job and reloads all output tables.
+Derived jobs register as the same four-segment asset keys as datasets: `repo / schema / job_name / table_name`. Each YAML job is one `@multi_asset` bundle: materializing one or more table keys in a run executes the derived job **once** and reloads all output tables atomically (`can_subset=True`; selecting any sibling still runs the full bundle).
 
 ```bash
 export DATABASE_URL=postgresql://opendata:opendata@localhost:5432/opendata

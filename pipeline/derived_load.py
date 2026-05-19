@@ -46,32 +46,32 @@ def _job_doc_for_spec(repo: LoadedDefinitionRepo, job_name: str) -> dict[str, An
     return doc
 
 
-def materialize_derived_job_table(
+def materialize_derived_job_bundle(
     *,
     repo: LoadedDefinitionRepo,
     schema: str,
     job_name: str,
-    table_name: str,
     work_dir: Path,
     deployment: Mapping[str, Any],
     manifest_path: Path | None = None,
     environ: Mapping[str, str] | None = None,
     provision: bool = True,
     derived_image: str | None = None,
-) -> MaterializeDerivedResult:
-    """Run the full derived job, validate CSV outputs, load all tables atomically.
-
-    Each table asset in a multi-table job re-runs the entire job (same pattern as datasets).
-    """
+) -> dict[str, MaterializeDerivedResult]:
+    """Run the derived job once, validate CSV outputs, load all tables atomically."""
     envmap = environ if environ is not None else os.environ
     dsn = _database_url(envmap)
     doc = _job_doc_for_spec(repo, job_name)
     tables = doc.get("tables")
     if not isinstance(tables, list):
         raise MaterializeDerivedError(f"{job_name}: tables must be a list")
-    table_names = [t.get("name") for t in tables if isinstance(t, dict)]
-    if table_name not in table_names:
-        raise MaterializeDerivedError(f"{job_name}: no table named {table_name!r}")
+    table_names = [
+        str(t["name"])
+        for t in tables
+        if isinstance(t, dict) and isinstance(t.get("name"), str)
+    ]
+    if not table_names:
+        raise MaterializeDerivedError(f"{job_name}: no tables declared")
 
     entrypoint = doc.get("entrypoint")
     if not isinstance(entrypoint, str) or not entrypoint:
@@ -114,7 +114,7 @@ def materialize_derived_job_table(
         raise MaterializeDerivedError(f"{label}: {e}") from e
 
     try:
-        row_counts = validate_derived_job_outputs(doc, ctx.output_dir)
+        validated_counts = validate_derived_job_outputs(doc, ctx.output_dir)
     except DerivedValidationError as e:
         raise MaterializeDerivedError(f"{label}: {e}") from e
 
@@ -123,11 +123,7 @@ def materialize_derived_job_table(
         owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
         run_provisioning(deployment_doc, dsn, table_owner_role=owner)
 
-    table_csv_paths = {
-        str(t["name"]): ctx.output_dir / f"{t['name']}.csv"
-        for t in tables
-        if isinstance(t, dict) and isinstance(t.get("name"), str)
-    }
+    table_csv_paths = {tn: ctx.output_dir / f"{tn}.csv" for tn in table_names}
 
     try:
         import psycopg
@@ -135,7 +131,7 @@ def materialize_derived_job_table(
         raise MaterializeDerivedError("psycopg is required for derived job materialization") from e
 
     owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
-    pg_row_count: int | None = row_counts.get(table_name)
+    pg_row_counts: dict[str, int | None] = {tn: validated_counts.get(tn) for tn in table_names}
     try:
         with psycopg.connect(dsn, autocommit=False) as conn:
             with conn.cursor() as cur:
@@ -148,10 +144,11 @@ def materialize_derived_job_table(
                 table_csv_paths=table_csv_paths,
                 table_owner_role=owner,
             )
-            with conn.cursor() as cur:
-                cur.execute(f'SELECT count(*) FROM "{schema}"."{table_name}"')
-                row = cur.fetchone()
-                pg_row_count = int(row[0]) if row else pg_row_count
+            for tn in table_names:
+                with conn.cursor() as cur:
+                    cur.execute(f'SELECT count(*) FROM "{schema}"."{tn}"')
+                    row = cur.fetchone()
+                    pg_row_counts[tn] = int(row[0]) if row else pg_row_counts[tn]
             conn.commit()
     except LoaderError as e:
         raise MaterializeDerivedError(str(e)) from e
@@ -160,4 +157,37 @@ def materialize_derived_job_table(
     finally:
         shutil.rmtree(ctx.output_dir, ignore_errors=True)
 
-    return MaterializeDerivedResult(table_name=table_name, row_count=pg_row_count)
+    return {
+        tn: MaterializeDerivedResult(table_name=tn, row_count=pg_row_counts[tn])
+        for tn in table_names
+    }
+
+
+def materialize_derived_job_table(
+    *,
+    repo: LoadedDefinitionRepo,
+    schema: str,
+    job_name: str,
+    table_name: str,
+    work_dir: Path,
+    deployment: Mapping[str, Any],
+    manifest_path: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+    provision: bool = True,
+    derived_image: str | None = None,
+) -> MaterializeDerivedResult:
+    """Materialize one table via :func:`materialize_derived_job_bundle` (full job run)."""
+    bundle = materialize_derived_job_bundle(
+        repo=repo,
+        schema=schema,
+        job_name=job_name,
+        work_dir=work_dir,
+        deployment=deployment,
+        manifest_path=manifest_path,
+        environ=environ,
+        provision=provision,
+        derived_image=derived_image,
+    )
+    if table_name not in bundle:
+        raise MaterializeDerivedError(f"{job_name}: no table named {table_name!r}")
+    return bundle[table_name]
