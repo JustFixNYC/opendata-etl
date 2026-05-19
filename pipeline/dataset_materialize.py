@@ -11,6 +11,13 @@ from typing import Any, Mapping
 
 from pipeline.definitions import LoadedDefinitionRepo
 from pipeline.extract.orchestrate import ExtractOrchestrationError, extract_dataset_to_staging, temp_work_dir
+from pipeline.landing import (
+    LandingError,
+    default_landing_prefix,
+    land_extract_csv,
+    landing_backend,
+    resolve_table_csv_paths_for_load,
+)
 from pipeline.repo_yaml import parse_repo_datasets
 from pipeline.load.loader import LoaderError, load_dataset_tables_from_csv
 from pipeline.provisioning import load_deployment_manifest, run_provisioning
@@ -93,12 +100,38 @@ def materialize_dataset_bundle(
     except ExtractOrchestrationError as e:
         raise MaterializeError(str(e)) from e
 
+    run_date = default_landing_prefix()
+    table_csv_paths: dict[str, str | Path] = {}
+    if landing_backend(envmap) == "s3":
+        try:
+            for tn, result in staging.items():
+                uri = land_extract_csv(
+                    result.staging_csv_path,
+                    dataset_name=dataset_name,
+                    table_name=tn,
+                    run_date=run_date,
+                    environ=envmap,
+                )
+                table_csv_paths[tn] = uri
+        except LandingError as e:
+            raise MaterializeError(str(e)) from e
+    else:
+        table_csv_paths = {tn: staging[tn].staging_csv_path for tn in staging}
+
     if provision and manifest_path is not None and manifest_path.is_file():
         deployment = load_deployment_manifest(manifest_path)
         owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
         run_provisioning(deployment, dsn, table_owner_role=owner)
 
-    table_csv_paths = {tn: staging[tn].staging_csv_path for tn in staging}
+    load_root = extract_root / "load" if landing_backend(envmap) == "s3" else None
+    try:
+        resolved_paths = resolve_table_csv_paths_for_load(
+            table_csv_paths,
+            work_dir=load_root,
+            environ=envmap,
+        )
+    except LandingError as e:
+        raise MaterializeError(str(e)) from e
 
     try:
         import psycopg
@@ -116,7 +149,7 @@ def materialize_dataset_bundle(
                 conn,
                 target_schema=schema,
                 dataset_doc=doc,
-                table_csv_paths=table_csv_paths,
+                table_csv_paths=resolved_paths,
                 table_owner_role=owner,
             )
             for tn in table_names:

@@ -13,6 +13,12 @@ from pipeline.definitions import LoadedDefinitionRepo
 from pipeline.derived_context import DerivedContextError, build_derived_job_context
 from pipeline.derived_runner import DerivedRunnerError, run_derived_job
 from pipeline.derived_validate import DerivedValidationError, validate_derived_job_outputs
+from pipeline.landing import (
+    LandingError,
+    land_derived_csv,
+    landing_backend,
+    resolve_table_csv_paths_for_load,
+)
 from pipeline.repo_yaml import parse_repo_derived_jobs
 from pipeline.load.loader import LoaderError, load_dataset_tables_from_csv
 from pipeline.provisioning import load_deployment_manifest, run_provisioning
@@ -118,12 +124,39 @@ def materialize_derived_job_bundle(
     except DerivedValidationError as e:
         raise MaterializeDerivedError(f"{label}: {e}") from e
 
+    table_csv_paths: dict[str, str | Path] = {
+        tn: ctx.output_dir / f"{tn}.csv" for tn in table_names
+    }
+    if landing_backend(envmap) == "s3":
+        try:
+            table_csv_paths = {
+                tn: land_derived_csv(
+                    ctx.output_dir / f"{tn}.csv",
+                    repo_name=repo.name,
+                    job_name=job_name,
+                    run_id=ctx.run_id,
+                    table_name=tn,
+                    environ=envmap,
+                )
+                for tn in table_names
+            }
+        except LandingError as e:
+            raise MaterializeDerivedError(str(e)) from e
+
     if provision and manifest_path is not None and manifest_path.is_file():
         deployment_doc = load_deployment_manifest(manifest_path)
         owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
         run_provisioning(deployment_doc, dsn, table_owner_role=owner)
 
-    table_csv_paths = {tn: ctx.output_dir / f"{tn}.csv" for tn in table_names}
+    load_root = work_dir / "derived_load" / job_name / ctx.run_id
+    try:
+        resolved_paths = resolve_table_csv_paths_for_load(
+            table_csv_paths,
+            work_dir=load_root,
+            environ=envmap,
+        )
+    except LandingError as e:
+        raise MaterializeDerivedError(str(e)) from e
 
     try:
         import psycopg
@@ -141,7 +174,7 @@ def materialize_derived_job_bundle(
                 conn,
                 target_schema=schema,
                 dataset_doc=doc,
-                table_csv_paths=table_csv_paths,
+                table_csv_paths=resolved_paths,
                 table_owner_role=owner,
             )
             for tn in table_names:

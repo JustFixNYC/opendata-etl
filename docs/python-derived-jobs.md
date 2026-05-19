@@ -35,15 +35,18 @@ def main(ctx: DerivedJobContext) -> None:
     # write CSV with header row matching YAML columns
 ```
 
-`ctx.output_uri` is a `file://` directory in **`profile: lite`** (Step 17). Step 18 adds `s3://` prefixes for `standard` / `scaled`.
+`ctx.output_uri` is a `file://` directory when `OPENDATA_LANDING_BACKEND=local` (default **`profile: lite`**). With `OPENDATA_LANDING_BACKEND=s3`, `output_uri` is an `s3://{bucket}/derived/{repo}/{job}/{run_id}/` prefix; jobs still write CSVs under `ctx.output_dir` locally and the framework uploads after the run.
 
 ## Execution
 
-| Variable | Values (Step 17) | Purpose |
-|----------|------------------|---------|
+| Variable | Values | Purpose |
+|----------|--------|---------|
 | `OPENDATA_DERIVED_RUNNER` | `local` (default), `docker` | How to invoke job code |
 | `OPENDATA_DERIVED_IMAGE` | image ref | Required when runner is `docker` |
+| `OPENDATA_LANDING_BACKEND` | `local` (default), `s3` | Land derived CSVs on S3/MinIO |
+| `OPENDATA_LOAD_BACKEND` | `copy_local` (default) | Download S3 CSVs before COPY |
 | `DATABASE_URL` | Postgres DSN | Read-only upstream queries + load |
+| `S3_BUCKET`, `S3_*` | landing zone | Required when landing backend is `s3` |
 
 Optional per-repo image: `repo.yml` → `derived_image` (used by docker runner).
 

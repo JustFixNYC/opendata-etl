@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
+from pipeline.landing import landing_backend, derived_output_uri_prefix
+
 
 class DerivedContextError(RuntimeError):
     """Raised when output_uri or profile configuration is invalid."""
@@ -57,17 +59,26 @@ def resolve_output_dir(
     repo_name: str,
     job_name: str,
     run_id: str,
+    environ: Mapping[str, str] | None = None,
 ) -> tuple[str, Path]:
-    """Return ``(output_uri, local_path)`` for the current profile.
+    """Return ``(output_uri, local_staging_dir)`` for job CSV writes.
 
-    Step 17 supports ``lite`` only (local directory). ``standard`` and ``scaled`` use the
-    same path shape until Step 18 wires S3 URIs.
+    Jobs always write to ``local_staging_dir``; when ``OPENDATA_LANDING_BACKEND=s3`` the
+    framework uploads to ``s3://…/derived/{repo}/{job}/{run_id}/`` after the run.
     """
     if profile not in ("lite", "standard", "scaled"):
         raise DerivedContextError(f"unsupported profile {profile!r}")
     out_dir = (work_dir / "derived_runs" / repo_name / job_name / run_id).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    uri = out_dir.as_uri()
+    if landing_backend(environ) == "s3":
+        uri = derived_output_uri_prefix(
+            repo_name=repo_name,
+            job_name=job_name,
+            run_id=run_id,
+            environ=environ,
+        )
+    else:
+        uri = out_dir.as_uri()
     return uri, out_dir
 
 
@@ -94,6 +105,7 @@ def build_derived_job_context(
         repo_name=repo_name,
         job_name=job_name,
         run_id=rid,
+        environ=envmap,
     )
     return DerivedJobContext(
         repo_name=repo_name,
@@ -109,12 +121,20 @@ def build_derived_job_context(
 
 
 def parse_file_output_uri(output_uri: str) -> Path:
-    """Resolve a ``file://`` output_uri to a local directory (lite profile)."""
+    """Resolve a ``file://`` output_uri to a local directory."""
     parsed = urlparse(output_uri)
     if parsed.scheme == "file":
         return Path(parsed.path).resolve()
     if parsed.scheme in ("", None) and output_uri:
         return Path(output_uri).resolve()
     raise DerivedContextError(
-        f"Step 17 supports file:// output_uri only; got {output_uri!r} (S3 in Step 18)"
+        f"output_uri must be a local file path or file:// URI; got {output_uri!r}"
     )
+
+
+def parse_output_uri(output_uri: str) -> Path | None:
+    """Return local staging dir for ``file://``; ``None`` when ``output_uri`` is ``s3://``."""
+    parsed = urlparse(output_uri)
+    if parsed.scheme == "s3":
+        return None
+    return parse_file_output_uri(output_uri)

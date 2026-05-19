@@ -122,7 +122,7 @@ def test_s3_source_read_and_landing_write_roundtrip() -> None:
         "AWS_DEFAULT_REGION": "us-east-1",
     }
     key = landing_object_key(dataset_name="sample_csv", table_name="rows", run_date="2030-05-01", extension="csv")
-    assert key == "sample_csv/2030-05-01/rows.csv"
+    assert key == "extract/sample_csv/2030-05-01/rows.csv"
     write_landing_bytes(body, key=key, content_type="text/csv", environ=land_env)
     assert cli.get_object(Bucket="landing-bucket", Key=key)["Body"].read() == payload
 
@@ -190,4 +190,4 @@ def test_landing_object_key_with_filename() -> None:
         run_date="2030-01-02",
         filename="part-000.csv",
     )
-    assert k == "bundle_demo/2030-01-02/a/part-000.csv"
+    assert k == "extract/bundle_demo/2030-01-02/a/part-000.csv"

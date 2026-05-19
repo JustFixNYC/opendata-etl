@@ -33,6 +33,7 @@ class TableStagingResult:
     table_name: str
     staging_csv_path: Path
     unexpected_new_headers: tuple[str, ...]
+    landing_uri: str | None = None
 
 
 def _require_source(table_doc: Mapping[str, Any], *, label: str) -> dict[str, Any]:

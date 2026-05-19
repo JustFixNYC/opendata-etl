@@ -7,7 +7,7 @@ Deployments declare a **`profile`** on `definitions.yml` (JSON Schema: `lite` | 
 | Profile | Host model | Extract | Derived jobs | Load |
 |---------|------------|---------|--------------|------|
 | `lite` | Single Docker Compose host | In-process on orchestrator | `OPENDATA_DERIVED_RUNNER=local` or `docker` on same host | COPY from local CSV |
-| `standard` | Stepping stone | Multiprocess + S3 landing (Step 18) | Docker or small EKS | Download S3 → COPY (interim) |
+| `standard` | Stepping stone | Multiprocess + S3 landing | Docker or small EKS | Download S3 → COPY (`copy_local`) |
 | `scaled` | Aurora + S3 + EKS + split services (Step 19+) | EKS Jobs (Step 22) | EKS Jobs (Step 21) | Server-side COPY (Step 20) |
 
 When `profile` is omitted, the framework treats the deployment as **`lite`**.
@@ -30,7 +30,9 @@ When `profile` is omitted, the framework treats the deployment as **`lite`**.
 
 4. Open Dagster at `http://localhost:3000`, materialize datasets then derived jobs.
 
-Derived CSVs land under `data/definitions_work/derived_runs/{repo}/{job}/{run_id}/` on the orchestrator host.
+Derived CSVs land under `data/definitions_work/derived_runs/{repo}/{job}/{run_id}/` on the orchestrator host (`OPENDATA_LANDING_BACKEND=local`, the default).
+
+With `OPENDATA_LANDING_BACKEND=s3`, objects use `s3://{S3_BUCKET}/derived/{repo}/{job}/{run_id}/{table}.csv`; extract staging uses `s3://{S3_BUCKET}/extract/{dataset}/{date}/{table}.csv`.
 
 ## Scaled overview (Steps 18–22)
 
