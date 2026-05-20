@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_ordered_entries_prod_fixture() -> None:
     deployment = load_deployment_manifest(REPO_ROOT / "examples" / "definitions.prod.yml")
     ordered = ordered_deployment_definition_entries(deployment)
-    assert [str(e["name"]) for e in ordered] == ["core_housing", "derived_reports"]
+    assert [str(e["name"]) for e in ordered] == ["nycdb2", "derived_reports"]
 
 
 def test_read_role_naming() -> None:

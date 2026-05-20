@@ -38,12 +38,16 @@ With `OPENDATA_LANDING_BACKEND=s3`, objects use `s3://{S3_BUCKET}/derived/{repo}
 
 Production manifests use `profile: scaled` (see `examples/definitions.prod.yml`). That path adds:
 
-- S3/MinIO landing for extract and derived `output_uri`
-- Aurora PostgreSQL and Terraform under `infra/aws/`
-- EKS Job workers instead of local/docker runners
-- Server-side `COPY` from S3 into Aurora
+- S3 landing for extract and derived `output_uri` (`OPENDATA_LANDING_BACKEND=s3`)
+- Aurora PostgreSQL and Terraform under [`infra/aws/`](../infra/aws/README.md)
+- EKS Job workers instead of local/docker runners (Steps 21–22)
+- Server-side `COPY` from S3 into Aurora (Step 20)
 
-See the planning companion **opendata-etl_step_17_23_python_derived_scaled** for sequence and env flags (`OPENDATA_LANDING_BACKEND`, `OPENDATA_LOAD_BACKEND`, `OPENDATA_DERIVED_EXECUTOR`, `OPENDATA_EXTRACT_EXECUTOR`).
+**AWS guide:** [AWS scaled deployment](deployment/aws-scaled.md) — apply Terraform, EC2 Dagster orchestrator (reference), EKS workers, smoke tests.
+
+**DigitalOcean:** [DO service mapping](deployment/digitalocean-scaled.md) (documentation only; no Terraform in-repo).
+
+Env flags: `OPENDATA_LANDING_BACKEND`, `OPENDATA_LOAD_BACKEND`, `OPENDATA_DERIVED_EXECUTOR`, `OPENDATA_EXTRACT_EXECUTOR` (see SSM reference in Terraform `modules/iam`).
 
 ## `enabled_datasets`
 

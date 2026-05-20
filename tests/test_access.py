@@ -36,7 +36,7 @@ def test_prod_manifest_public_cannot_read_protected_schema() -> None:
         deployment=deployment,
         repos=(),
         source_credentials={},
-        topo_order_names=("core_housing", "derived_reports"),
+        topo_order_names=("nycdb2", "derived_reports"),
     )
     m = build_schema_access_model(lr)
     assert "nyc_housing" in m.public_read_schemas

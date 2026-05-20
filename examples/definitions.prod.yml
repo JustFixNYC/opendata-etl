@@ -1,31 +1,40 @@
 api_version: opendata-etl.definitions/v1
 profile: scaled
-notes: Illustrative multi-repo production manifest (pinned refs, grants, subset of datasets).
+notes: |
+  Illustrative production manifest for profile: scaled (Aurora + S3 + EKS).
+  Deploy infrastructure with infra/aws/ then point the orchestrator at this file
+  (or a private copy in S3). Runtime flags: OPENDATA_LANDING_BACKEND=s3,
+  OPENDATA_LOAD_BACKEND=copy_local (Step 20 → s3_copy_rds), OPENDATA_DERIVED_EXECUTOR=eks,
+  OPENDATA_EXTRACT_EXECUTOR=eks. See docs/deployment/aws-scaled.md.
 source_credentials:
   fake_source_reader:
     kind: aws_iam
-    description: Example placeholder for EC2 instance role or ambient AWS credentials.
+    description: Ambient IAM on orchestrator/EC2 or IRSA on EKS workers for protected S3 sources.
   justfix_data_public:
     kind: none
     description: Unsigned reads for public JustFix S3 objects (rentstab_v2).
   opendata_etl_testing:
     kind: aws_iam
-    description: Protected testing bucket (hpd_vacateorders); IAM user or instance role.
+    description: Protected testing bucket; grant s3:GetObject on worker/orchestrator roles.
 definitions:
-  - name: core_housing
-    url: "https://github.com/example-org/core-housing-definitions.git"
+  - name: nycdb2
+    url: "https://github.com/JustFixNYC/nycdb2.git"
     ref: "v0.1.0"
     schema: nyc_housing
     protected: false
+    depends_on: []
     enabled_datasets:
-      - sample_csv
+      - rentstab_v2
+      - nycc
+      - hpd_violations
+      - building_rollups
   - name: derived_reports
     url: "https://github.com/example-org/derived-reports-definitions.git"
     ref: "abc1234deadbeef0"
     schema: nyc_reports
     protected: true
     depends_on:
-      - core_housing
+      - nycdb2
     cross_repo_grants:
       - schema: nyc_housing
         access: read

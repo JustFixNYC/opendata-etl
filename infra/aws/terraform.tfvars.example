@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copy to terraform.tfvars and adjust before terraform apply.
+# Do not commit terraform.tfvars (may contain account-specific CIDRs).
+
+project_name = "opendata-etl"
+environment  = "prod"
+aws_region   = "us-east-1"
+
+# Restrict Dagster UI and admin access (replace with your office/VPN CIDR).
+admin_cidr_blocks = ["203.0.113.0/24"]
+
+# API ingress — tighten for production (ALB, CloudFront, or VPN only).
+api_ingress_cidr_blocks = ["0.0.0.0/0"]
+
+aurora_instance_class = "db.r6g.large"
+aurora_engine_version = "16.4"
+
+landing_lifecycle_expire_days = 90
+landing_bucket_force_destroy  = false # set true only in ephemeral dev accounts
+
+eks_node_desired_size = 2
+eks_node_max_size     = 10
+
+create_orchestrator_instance = true
+create_api_instance          = false # enable for split API EC2; or run API on EKS/ECS later
