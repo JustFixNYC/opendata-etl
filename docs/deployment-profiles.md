@@ -43,7 +43,14 @@ Production manifests use `profile: scaled` (see `examples/definitions.prod.yml`)
 - EKS Job workers instead of local/docker runners (Steps 21–22)
 - Server-side `COPY` from S3 into Aurora (Step 20)
 
-**AWS guide:** [AWS scaled deployment](deployment/aws-scaled.md) — apply Terraform, EC2 Dagster orchestrator (reference), EKS workers, smoke tests.
+**AWS guides (OSS):**
+
+- [Overview](deployment/aws-scaled.md)
+- [Components explained](deployment/aws-components.md) — VPC, Aurora, S3, EKS, IAM in plain language
+- [First-time deploy](deployment/aws-first-deploy.md) — Terraform through first materialization
+- [Ongoing maintenance](deployment/aws-maintenance.md) — upgrades, scaling, change windows
+
+Organization-specific cost and runbooks stay in your internal planning repo (not in this framework).
 
 **DigitalOcean:** [DO service mapping](deployment/digitalocean-scaled.md) (documentation only; no Terraform in-repo).
 
