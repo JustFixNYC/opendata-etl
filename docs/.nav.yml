@@ -12,6 +12,8 @@ nav:
       - Overview: deployment/aws-scaled.md
       - Components explained: deployment/aws-components.md
       - First-time deploy: deployment/aws-first-deploy.md
+      - RDS S3 COPY bootstrap: deployment/aws-s3-copy-bootstrap.md
+      - Database access (SSM): deployment/aws-database-access.md
       - Ongoing maintenance: deployment/aws-maintenance.md
   - DigitalOcean scaled: deployment/digitalocean-scaled.md
   - Column naming: column-names.md

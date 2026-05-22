@@ -1,0 +1,113 @@
+# AWS RDS bootstrap for server-side COPY (S3 → RDS)
+
+One-time setup on the **parallel POC** RDS instance after `terraform apply` (Step 19b). Required before Step 20 `OPENDATA_LOAD_BACKEND=s3_copy_rds` integration smoke.
+
+**Prerequisites:** Terraform outputs recorded (`database_endpoint`, `master_password_ssm`, `landing_bucket_name`, `orchestrator_instance_id`). RDS S3 import IAM role is created by Terraform (`rds_s3_import_role_arn` output).
+
+## 1. Connect to RDS
+
+Use SSM port forwarding from your laptop — see [Database access](aws-database-access.md). Or open a shell on the orchestrator EC2 via Session Manager and use `psql` with the private endpoint.
+
+```bash
+cd infra/aws
+export PGPASSWORD="$(aws ssm get-parameter \
+  --name "$(terraform output -raw master_password_ssm)" \
+  --with-decryption --query Parameter.Value --output text)"
+
+psql "host=127.0.0.1 port=15432 dbname=opendata user=opendata_admin sslmode=require"
+```
+
+## 2. Enable extensions
+
+Run as the master user (`opendata_admin`):
+
+```sql
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS aws_commons;
+CREATE EXTENSION IF NOT EXISTS aws_s3;
+```
+
+Verify:
+
+```sql
+SELECT extname FROM pg_extension
+WHERE extname IN ('postgis', 'aws_commons', 'aws_s3');
+```
+
+## 3. Verify RDS S3 import IAM association
+
+From your workstation (not SQL):
+
+```bash
+aws rds describe-db-instances \
+  --db-instance-identifier "$(terraform output -raw database_instance_identifier)" \
+  --query 'DBInstances[0].AssociatedRoles' \
+  --output table
+```
+
+You should see a role with `FeatureName` = `s3Import`. The role ARN matches `terraform output -raw rds_s3_import_role_arn`.
+
+## 4. S3 import smoke test
+
+Upload a tiny CSV to the landing bucket (replace bucket name from `terraform output -raw landing_bucket_name`):
+
+```bash
+BUCKET="$(terraform output -raw landing_bucket_name)"
+echo "id,name
+1,alpha
+2,beta" > /tmp/smoke.csv
+aws s3 cp /tmp/smoke.csv "s3://${BUCKET}/extract/smoke-test/2026-05-22/rows.csv"
+```
+
+In `psql`:
+
+```sql
+CREATE TABLE IF NOT EXISTS public._s3_import_smoke (
+  id   integer,
+  name text
+);
+
+TRUNCATE public._s3_import_smoke;
+
+SELECT aws_s3.table_import_from_s3(
+  'public._s3_import_smoke',
+  'id,name',
+  '(format csv, header true)',
+  aws_commons.create_s3_uri(
+    'REPLACE_BUCKET',
+    'extract/smoke-test/2026-05-22/rows.csv',
+    'us-east-1'
+  )
+);
+
+SELECT * FROM public._s3_import_smoke;
+```
+
+Replace `REPLACE_BUCKET` and region to match your deployment.
+
+Expected: two rows. On failure, check IAM role association, bucket policy (Terraform attaches one for the import role), and that the object key exists.
+
+## 5. Framework role provisioning
+
+After extensions work, run framework provisioning against a POC `definitions.yml` subset:
+
+```bash
+export DATABASE_URL="postgresql://opendata_admin:<password>@<database_endpoint>:5432/opendata?sslmode=require"
+python scripts/provision_roles.py --definitions examples/definitions.poc.yml
+```
+
+(`definitions.poc.yml` is added in Step 22; use a minimal manifest until then.)
+
+## Troubleshooting
+
+| Symptom | Check |
+|--------|--------|
+| `aws_s3` extension missing | Engine version 16.x; run bootstrap SQL as master |
+| `permission denied` on S3 import | `aws_db_instance_role_association` + IAM role policy + bucket policy |
+| Timeout from private VPC | NAT gateway for orchestrator; optional S3 VPC gateway endpoint |
+| SSL errors from Postico | SSL mode **Require**; use port forward target `127.0.0.1:15432` |
+
+## Next steps
+
+- **Step 20:** `pipeline/load/s3_copy_rds.py` and `OPENDATA_LOAD_BACKEND=s3_copy_rds`
+- **Operator checklist:** `/Users/maxwell/repos/_planning/extra-plans/opendata-etl-step-19b-aws-readiness-for-step-20.plan.md`

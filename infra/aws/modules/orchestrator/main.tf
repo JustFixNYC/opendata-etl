@@ -44,8 +44,8 @@ resource "aws_instance" "orchestrator" {
     mkdir -p /opt/opendata-etl
     cat >/opt/opendata-etl/README.txt <<'NOTE'
     Reference Dagster orchestrator (EC2). Install the framework image from ECR and run
-    dagster-webserver + dagster-daemon per docs/deployment/aws-scaled.md.
-    Alternative: run Dagster on EKS (documented in the same guide).
+    dagster-webserver + dagster-daemon per docs/deployment/aws-scaled.md and
+    docs/deployment/aws-database-access.md (SSM port forward for RDS).
     NOTE
   EOT
 

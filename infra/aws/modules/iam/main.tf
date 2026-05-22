@@ -58,24 +58,6 @@ resource "aws_iam_role_policy" "orchestrator" {
         Resource = "arn:aws:ssm:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*"
       },
       {
-        Sid    = "EKSJobControl"
-        Effect = "Allow"
-        Action = [
-          "eks:DescribeCluster",
-          "eks:ListClusters",
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "EKSJobsSteps2122"
-        Effect = "Allow"
-        Action = [
-          "eks:DescribeNodegroup",
-          "eks:ListNodegroups",
-        ]
-        Resource = "*"
-      },
-      {
         Sid    = "ECRPull"
         Effect = "Allow"
         Action = [
@@ -160,20 +142,20 @@ resource "aws_ssm_parameter" "definitions_manifest" {
   }
 }
 
-resource "aws_ssm_parameter" "scaled_env" {
-  name = "${var.ssm_prefix}/runtime/scaled_env"
+resource "aws_ssm_parameter" "standard_env" {
+  name = "${var.ssm_prefix}/runtime/standard_env"
   type = "String"
   value = join("\n", [
     "OPENDATA_LANDING_BACKEND=s3",
     "OPENDATA_LOAD_BACKEND=copy_local",
-    "OPENDATA_DERIVED_EXECUTOR=eks",
-    "OPENDATA_EXTRACT_EXECUTOR=eks",
+    "OPENDATA_DERIVED_EXECUTOR=docker",
+    "OPENDATA_EXTRACT_EXECUTOR=local",
     "S3_BUCKET=${var.landing_bucket_id}",
   ])
 
-  description = "Reference env flags for scaled profile (Steps 20–22 extend load/executors)."
+  description = "Reference env flags for standard profile (Step 20 sets OPENDATA_LOAD_BACKEND=s3_copy_rds)."
 
   tags = {
-    Name = "${var.name_prefix}-scaled-env-reference"
+    Name = "${var.name_prefix}-standard-env-reference"
   }
 }

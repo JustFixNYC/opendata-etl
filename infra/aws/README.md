@@ -1,8 +1,8 @@
-# AWS scaled infrastructure (Terraform)
+# AWS standard / POC infrastructure (Terraform)
 
-Reference IaC for **`profile: scaled`** deployments: Aurora PostgreSQL, S3 landing bucket, EKS cluster for batch Jobs, ECR repositories, split security groups (API / orchestrator / workers), IAM roles, and SSM parameters for secrets.
+Reference IaC for **`profile: standard`** parallel POC deployments: **RDS PostgreSQL 16**, S3 landing bucket, EC2 orchestrator (optional API EC2), ECR repositories, split security groups, IAM roles, RDS S3-import IAM, and SSM parameters for secrets.
 
-**Orchestrator reference path:** EC2 instance with SSM access running Dagster (documented in [`docs/deployment/aws-scaled.md`](../../docs/deployment/aws-scaled.md)). **Alternative:** Dagster on EKS — same Terraform outputs; different install steps in the guide.
+**No EKS** in active Terraform (Step 19b). The Step 19 EKS and Aurora modules are archived under [`_archived/`](_archived/).
 
 ## Layout
 
@@ -11,12 +11,14 @@ infra/aws/
 ├── main.tf                 # Root module wiring
 ├── variables.tf / outputs.tf
 ├── terraform.tfvars.example
+├── _archived/
+│   ├── eks/                # Archived EKS module (Step 19)
+│   └── aurora/             # Archived Aurora module (Step 19)
 └── modules/
     ├── network/            # VPC, public/private subnets, NAT
-    ├── security_groups/    # aurora, orchestrator, api, eks_workers
-    ├── aurora/             # Aurora PostgreSQL cluster + SSM password
+    ├── security_groups/    # postgres, orchestrator, api
+    ├── postgres_rds/       # RDS PostgreSQL + S3 import IAM + role association
     ├── landing/            # S3 bucket (extract/, derived/) + lifecycle
-    ├── eks/                # EKS cluster, node group, IRSA worker role
     ├── ecr/                # framework + derived image repos
     ├── iam/                # EC2 instance profiles + SSM placeholders
     ├── orchestrator/       # Reference EC2 Dagster host
@@ -26,8 +28,9 @@ infra/aws/
 ## Prerequisites
 
 - Terraform >= 1.5
-- AWS CLI configured (`aws sts get-caller-identity`)
-- IAM permissions to create VPC, RDS, S3, EKS, EC2, IAM, SSM
+- AWS CLI v2 + **Session Manager plugin**
+- `aws sts get-caller-identity` works
+- IAM permissions to create VPC, RDS, S3, EC2, IAM, SSM
 
 ## Quick start
 
@@ -39,16 +42,16 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform validate
 terraform plan -out=tfplan
-# terraform apply tfplan   # requires credentials; creates billable resources
+# terraform apply tfplan   # human: requires credentials; creates billable resources
 ```
 
 ## Post-apply
 
-1. Read `terraform output` (cluster name, bucket, SSM paths, smoke commands).
-2. Enable **PostGIS** on Aurora (one-time): connect as master user, `CREATE EXTENSION postgis;` per schema after framework provisioning.
-3. Push framework image to `ecr_framework_repository_url`; definition-repo derived images to `derived` repo (tag per repo).
-4. On the orchestrator EC2 (SSM Session Manager), set `DATABASE_URL`, `S3_BUCKET`, and flags from SSM `/runtime/scaled_env`.
-5. Steps **20–22** add server-side COPY and EKS Job submitters in application code.
+1. Read `terraform output -json` — record `landing_bucket_name`, `database_endpoint`, `master_password_ssm`, `orchestrator_instance_id`.
+2. Bootstrap RDS extensions: [`docs/deployment/aws-s3-copy-bootstrap.md`](../../docs/deployment/aws-s3-copy-bootstrap.md).
+3. Database access (Postico / psql): [`docs/deployment/aws-database-access.md`](../../docs/deployment/aws-database-access.md).
+4. Operator checklist: `/Users/maxwell/repos/_planning/extra-plans/opendata-etl-step-19b-aws-readiness-for-step-20.plan.md`
+5. Step **20** adds `s3_copy_rds` in application code; Step **22** adds API EC2 and `definitions.poc.yml`.
 
 ## Secrets
 
@@ -56,4 +59,4 @@ Passwords and connection strings are stored in **SSM Parameter Store** (SecureSt
 
 ## Cost note
 
-Default variables provision NAT gateway, Aurora `db.r6g.large`, and a multi-node EKS group. Use smaller classes and `single_nat_gateway = true` for dev accounts; destroy with `terraform destroy` when finished experimenting.
+POC defaults: single NAT gateway, `db.t4g.medium`, one orchestrator EC2. Destroy with `terraform destroy` when finished experimenting.

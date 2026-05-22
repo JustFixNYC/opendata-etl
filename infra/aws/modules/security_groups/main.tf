@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-resource "aws_security_group" "aurora" {
-  name        = "${var.name_prefix}-aurora"
-  description = "Aurora PostgreSQL — ingress from orchestrator, API, and EKS workers only."
+resource "aws_security_group" "postgres" {
+  name        = "${var.name_prefix}-postgres"
+  description = "RDS PostgreSQL — ingress from orchestrator and API hosts only."
   vpc_id      = var.vpc_id
 
   egress {
@@ -13,14 +13,14 @@ resource "aws_security_group" "aurora" {
   }
 
   tags = {
-    Name = "${var.name_prefix}-aurora-sg"
+    Name = "${var.name_prefix}-postgres-sg"
     Role = "database"
   }
 }
 
 resource "aws_security_group" "orchestrator" {
   name        = "${var.name_prefix}-orchestrator"
-  description = "Dagster orchestrator — submits EKS Jobs, runs load assets, reaches Aurora and S3."
+  description = "Dagster orchestrator — extract/load assets, reaches RDS and S3."
   vpc_id      = var.vpc_id
 
   ingress {
@@ -88,29 +88,10 @@ resource "aws_security_group" "api" {
   }
 }
 
-resource "aws_security_group" "eks_workers" {
-  name        = "${var.name_prefix}-eks-workers"
-  description = "EKS managed nodes — extract/derived Job pods (no public ingress)."
-  vpc_id      = var.vpc_id
-
-  egress {
-    description = "All outbound (S3, source APIs, image pulls)"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.name_prefix}-eks-workers-sg"
-    Role = "eks-workers"
-  }
-}
-
-# Aurora:5432 from orchestrator, API, EKS workers
-resource "aws_security_group_rule" "aurora_from_orchestrator" {
+# Postgres:5432 from orchestrator and API
+resource "aws_security_group_rule" "postgres_from_orchestrator" {
   type                     = "ingress"
-  security_group_id        = aws_security_group.aurora.id
+  security_group_id        = aws_security_group.postgres.id
   source_security_group_id = aws_security_group.orchestrator.id
   from_port                = 5432
   to_port                  = 5432
@@ -118,22 +99,12 @@ resource "aws_security_group_rule" "aurora_from_orchestrator" {
   description              = "Postgres from orchestrator"
 }
 
-resource "aws_security_group_rule" "aurora_from_api" {
+resource "aws_security_group_rule" "postgres_from_api" {
   type                     = "ingress"
-  security_group_id        = aws_security_group.aurora.id
+  security_group_id        = aws_security_group.postgres.id
   source_security_group_id = aws_security_group.api.id
   from_port                = 5432
   to_port                  = 5432
   protocol                 = "tcp"
   description              = "Postgres from API host"
-}
-
-resource "aws_security_group_rule" "aurora_from_eks" {
-  type                     = "ingress"
-  security_group_id        = aws_security_group.aurora.id
-  source_security_group_id = aws_security_group.eks_workers.id
-  from_port                = 5432
-  to_port                  = 5432
-  protocol                 = "tcp"
-  description              = "Postgres from EKS workers (derived jobs needing read-only DB)"
 }

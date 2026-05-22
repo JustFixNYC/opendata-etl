@@ -7,8 +7,8 @@ variable "project_name" {
 
 variable "environment" {
   type        = string
-  description = "Deployment environment label (e.g. prod, staging)."
-  default     = "prod"
+  description = "Deployment environment label (e.g. poc, prod)."
+  default     = "poc"
 }
 
 variable "aws_region" {
@@ -41,39 +41,63 @@ variable "api_ingress_cidr_blocks" {
   default     = ["0.0.0.0/0"]
 }
 
-variable "aurora_engine_version" {
+variable "postgres_engine_version" {
   type        = string
-  description = "Aurora PostgreSQL engine version."
+  description = "RDS PostgreSQL engine version."
   default     = "16.4"
 }
 
-variable "aurora_instance_class" {
+variable "postgres_instance_class" {
   type        = string
-  description = "Aurora instance class for the writer (and readers if enabled)."
-  default     = "db.r6g.large"
+  description = "RDS instance class (POC default db.t4g.medium)."
+  default     = "db.t4g.medium"
 }
 
-variable "aurora_database_name" {
+variable "postgres_allocated_storage" {
+  type        = number
+  description = "Initial allocated storage in GB."
+  default     = 20
+}
+
+variable "postgres_max_allocated_storage" {
+  type        = number
+  description = "Maximum autoscaling storage in GB."
+  default     = 100
+}
+
+variable "postgres_database_name" {
   type        = string
-  description = "Initial database name on the Aurora cluster."
+  description = "Initial database name on the RDS instance."
   default     = "opendata"
 }
 
-variable "aurora_master_username" {
+variable "postgres_master_username" {
   type        = string
-  description = "Master username for Aurora (password generated and stored in SSM)."
+  description = "Master username for RDS (password generated and stored in SSM)."
   default     = "opendata_admin"
 }
 
-variable "aurora_backup_retention_days" {
+variable "postgres_backup_retention_days" {
   type        = number
-  description = "Aurora backup retention in days."
+  description = "RDS backup retention in days."
   default     = 7
+}
+
+variable "postgres_deletion_protection" {
+  type        = bool
+  description = "Enable deletion protection on the RDS instance."
+  default     = true
+}
+
+variable "postgres_skip_final_snapshot" {
+  type        = bool
+  description = "Skip final snapshot on destroy (set true only for ephemeral POC)."
+  default     = false
 }
 
 variable "landing_bucket_force_destroy" {
   type        = bool
-  description = "Allow Terraform to destroy a non-empty landing bucket (dev only)."
+  description = "Allow Terraform to destroy a non-empty landing bucket (dev/POC only)."
   default     = false
 }
 
@@ -83,37 +107,9 @@ variable "landing_lifecycle_expire_days" {
   default     = 90
 }
 
-variable "eks_cluster_version" {
-  type        = string
-  description = "EKS control plane version."
-  default     = "1.31"
-}
-
-variable "eks_node_instance_types" {
-  type        = list(string)
-  description = "Instance types for the EKS managed node group running extract/derived Jobs."
-  default     = ["m6i.large"]
-}
-
-variable "eks_node_desired_size" {
-  type        = number
-  description = "Desired node count for EKS Job workers."
-  default     = 2
-}
-
-variable "eks_node_min_size" {
-  type        = number
-  default     = 1
-}
-
-variable "eks_node_max_size" {
-  type        = number
-  default     = 10
-}
-
 variable "create_orchestrator_instance" {
   type        = bool
-  description = "Provision a reference EC2 Dagster orchestrator (recommended reference path)."
+  description = "Provision a reference EC2 Dagster orchestrator."
   default     = true
 }
 

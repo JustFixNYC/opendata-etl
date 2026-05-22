@@ -2,24 +2,28 @@
 # Copy to terraform.tfvars and adjust before terraform apply.
 # Do not commit terraform.tfvars (may contain account-specific CIDRs).
 
+# --- Parallel POC (profile: standard) — recommended starting point ---
 project_name = "opendata-etl"
-environment  = "prod"
+environment  = "poc"
 aws_region   = "us-east-1"
 
 # Restrict Dagster UI and admin access (replace with your office/VPN CIDR).
 admin_cidr_blocks = ["203.0.113.0/24"]
 
-# API ingress — tighten for production (ALB, CloudFront, or VPN only).
 api_ingress_cidr_blocks = ["0.0.0.0/0"]
 
-aurora_instance_class = "db.r6g.large"
-aurora_engine_version = "16.4"
+postgres_instance_class = "db.t4g.medium"
+postgres_engine_version = "16.4"
 
+single_nat_gateway           = true
 landing_lifecycle_expire_days = 90
-landing_bucket_force_destroy  = false # set true only in ephemeral dev accounts
-
-eks_node_desired_size = 2
-eks_node_max_size     = 10
+landing_bucket_force_destroy  = true # ephemeral POC only; false in long-lived envs
 
 create_orchestrator_instance = true
-create_api_instance          = false # enable for split API EC2; or run API on EKS/ECS later
+create_api_instance          = false # Step 22 enables API EC2 for full standard POC
+
+# --- Production-sized example (uncomment and adjust) ---
+# environment               = "prod"
+# postgres_instance_class   = "db.r6g.large"
+# landing_bucket_force_destroy = false
+# postgres_deletion_protection = true
