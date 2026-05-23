@@ -53,6 +53,7 @@ terraform plan -out=tfplan
 4. Operator checklist: `/Users/maxwell/repos/_planning/extra-plans/opendata-etl-step-19b-aws-readiness-for-step-20.plan.md`
 5. Application: `OPENDATA_LOAD_BACKEND=s3_copy_rds` (Step 20); POC manifest [`examples/definitions.poc.yml`](../../examples/definitions.poc.yml) and split API EC2 (`create_api_instance = true` in `terraform.tfvars.example`).
 6. Deploy guide: [`docs/deployment/aws-first-deploy.md`](../../docs/deployment/aws-first-deploy.md).
+7. Validation runbook (Step 23): [`docs/deployment/aws-poc-validation.md`](../../docs/deployment/aws-poc-validation.md).
 
 ## Secrets
 

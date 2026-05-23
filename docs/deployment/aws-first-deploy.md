@@ -27,7 +27,7 @@ For **what each AWS piece does**, read [Components explained](aws-components.md)
 
 - First `terraform apply`: ~20–30 minutes (no EKS).
 - Bootstrap + provisioning + Docker: 1–2 hours.
-- First split materialization: dataset-dependent; Part 9 below is a short checklist — master plan **Step 23** adds the full phased runbook.
+- First split materialization: dataset-dependent; Part 9 below is a short checklist — full phased runbook: [**Parallel POC validation**](aws-poc-validation.md) (Step 23).
 
 ## Part 1 — Terraform state (POC: local)
 
@@ -277,7 +277,7 @@ Dataset assets use **5-segment keys** with `extract` and `load` phases (Step 21)
 4. Repeat for `rentstab_v2` or `nycc` when validating Tier B sources.
 5. Hit a configured API endpoint on the API host after data exists.
 
-Full phased runbook (Terraform through derived + dbt): master plan **Step 23** (next doc pass).
+Full phased runbook (Terraform through split materialization + dbt): [**Parallel POC validation**](aws-poc-validation.md).
 
 ## Troubleshooting
 
@@ -294,7 +294,7 @@ Full phased runbook (Terraform through derived + dbt): master plan **Step 23** (
 ## What's next
 
 - [Ongoing maintenance](aws-maintenance.md) (adjust for RDS where Aurora is mentioned)
-- Master plan **Step 23**: parallel POC validation runbook (phases A–C)
+- [**Parallel POC validation**](aws-poc-validation.md) — phases A–C (Step 23)
 - [Deployment profiles](../deployment-profiles.md) — `standard` vs `lite` vs archived `scaled`
 
 ## Related

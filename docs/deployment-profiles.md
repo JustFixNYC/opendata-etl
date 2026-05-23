@@ -38,6 +38,7 @@ When `profile` is omitted, the framework treats the deployment as **`lite`**.
 **Guides:**
 
 - [First-time deploy (standard / POC)](deployment/aws-first-deploy.md)
+- [Parallel POC validation runbook](deployment/aws-poc-validation.md) (Step 23 — Terraform through first split materialization)
 - [RDS S3 COPY bootstrap](deployment/aws-s3-copy-bootstrap.md)
 - [Database access via SSM](deployment/aws-database-access.md)
 - [Components explained](deployment/aws-components.md) — read RDS/S3/EC2 sections; Aurora/EKS sections are historical

@@ -145,5 +145,5 @@ pytest tests/test_s3_copy_rds.py::test_s3_copy_rds_aws_smoke -q
 
 ## Next steps
 
-- **Step 21:** split extract and load Dagster assets (daytime / overnight)
-- **Operator checklist:** `/Users/maxwell/repos/_planning/extra-plans/opendata-etl-step-19b-aws-readiness-for-step-20.plan.md`
+- [Parallel POC validation runbook](aws-poc-validation.md) — Phases A–C (Terraform through first split materialization)
+- [First-time AWS deploy](aws-first-deploy.md) — EC2 Docker deploy (Phase B)
