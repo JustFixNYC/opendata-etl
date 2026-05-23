@@ -26,7 +26,8 @@ resource "aws_instance" "orchestrator" {
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 1
+    # 2 required so processes in Docker can use the instance profile (S3 landing from Dagster).
+    http_put_response_hop_limit = 2
   }
 
   root_block_device {

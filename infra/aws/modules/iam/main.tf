@@ -65,6 +65,8 @@ resource "aws_iam_role_policy" "orchestrator" {
           "ecr:BatchCheckLayerAvailability",
           "ecr:GetDownloadUrlForLayer",
           "ecr:BatchGetImage",
+          "ecr:DescribeRepositories",
+          "ecr:DescribeImages",
         ]
         Resource = "*"
       },
@@ -115,6 +117,19 @@ resource "aws_iam_role_policy" "api" {
           "ssm:GetParameters",
         ]
         Resource = "arn:aws:ssm:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*"
+      },
+      {
+        Sid    = "ECRPull"
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:DescribeRepositories",
+          "ecr:DescribeImages",
+        ]
+        Resource = "*"
       },
     ]
   })

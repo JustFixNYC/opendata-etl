@@ -141,19 +141,28 @@ Follow [First-time AWS deploy](aws-first-deploy.md) **Parts 5–8** with these P
 
 ### B1. Push image to ECR
 
+Same as [First-time deploy — Part 5](aws-first-deploy.md#part-5--push-docker-images-to-ecr). From framework repo root:
+
 ```bash
-cd infra/aws
+cd /path/to/opendata-etl
+
 REGION=us-east-1
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+cd infra/aws
 ECR_URL=$(terraform output -raw ecr_framework_repository_url)
+if [ -z "$ECR_URL" ]; then
+  echo "ERROR: ecr_framework_repository_url is empty — apply Terraform in infra/aws first."
+  exit 1
+fi
+cd ../..
 
 aws ecr get-login-password --region "$REGION" | \
   docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
 
-cd /path/to/opendata-etl
 docker build -t opendata-etl:poc .
-docker tag opendata-etl:poc "$ECR_URL:poc"
-docker push "$ECR_URL:poc"
+docker tag opendata-etl:poc "${ECR_URL}:poc"
+docker push "${ECR_URL}:poc"
 ```
 
 ### B2. Orchestrator — validate definitions
@@ -258,18 +267,16 @@ docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
 
 ### C3. API smoke (API EC2)
 
+Follow [First-time deploy — Part 7](aws-first-deploy.md#part-7--api-ec2-split-deploy) substeps **7.1–7.6** (ECR pull, read-role passwords, `api.env`, manifest mount, `docker run`, port-forward + curl).
+
 After `fixture_hello` load:
 
 ```bash
-# Health (no auth)
 curl -sS http://127.0.0.1:8000/healthz
-
-# Fixture route (API key header — replace KEY and id as appropriate)
-curl -sS -H "Authorization: Bearer <API_KEY>" \
-  "http://127.0.0.1:8000/housing/hello/by-id?id=1"
+curl -sS "http://127.0.0.1:8000/housing/hello/by-id?id=1"
 ```
 
-Endpoint definition: `nycdb2` `api_endpoints/hello_by_id.yml` → `GET /housing/hello/by-id`.
+Issue a key from your laptop (Part **7.6**) and retry with `Authorization: Bearer`.
 
 ---
 
@@ -301,6 +308,7 @@ Blockers:
 | Load before extract | Run extract assets first; check `extract_landing_exists` |
 | API 401/403 | Issue key with `opendata_nyc_housing_read`; set `OPENDATA_API_ROLE_DSNS` |
 | `terraform plan` shows EKS | Wrong branch; use 19b tree (`modules/postgres_rds/`) |
+| `invalid reference format` / `:poc` | `ECR_URL` empty — run `terraform output` from `infra/aws` (see Part 5) |
 
 ## Related
 
