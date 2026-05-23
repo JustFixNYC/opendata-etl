@@ -30,7 +30,7 @@ Services:
 - Dagster assets include **skeleton dataset tables** (Steps 6–8) plus **dbt models** when a definition repo contains `models/dbt_project.yml` and `dbt parse` succeeds at definition load time (Step 9). Install `dbt` on the host or use the project Docker image (`.[compose]` includes `dbt-core` + `dbt-postgres` + `dagster-dbt`).
 - The API registers routes from ``api_endpoints/*.yml`` (Step 10); SQL is not executed until Step 11 (per-role pools + validation).
 - Create the MinIO bucket named in `S3_BUCKET` (default `opendata-landing`) before extractors write objects; Compose does not auto-create it.
-- **S3 landing (Step 18):** set `OPENDATA_LANDING_BACKEND=s3` (and `OPENDATA_LOAD_BACKEND=copy_local`) to land extract/derived CSVs on MinIO. Paths: `extract/{dataset}/{date}/{table}.csv` and `derived/{repo}/{job}/{run_id}/{table}.csv`. Default `local` keeps CSVs on disk only.
+- **S3 landing (Step 18):** set `OPENDATA_LANDING_BACKEND=s3` and `OPENDATA_LOAD_BACKEND=copy_local` to land extract/derived CSVs on MinIO and download before COPY. On AWS RDS use `OPENDATA_LOAD_BACKEND=s3_copy_rds` (see [aws-s3-copy-bootstrap.md](deployment/aws-s3-copy-bootstrap.md)). Paths: `extract/{dataset}/{date}/{table}.csv` and `derived/{repo}/{job}/{run_id}/{table}.csv`. Default `local` keeps CSVs on disk only.
 
 ## Environment variables
 

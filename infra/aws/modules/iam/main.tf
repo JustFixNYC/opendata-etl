@@ -147,14 +147,14 @@ resource "aws_ssm_parameter" "standard_env" {
   type = "String"
   value = join("\n", [
     "OPENDATA_LANDING_BACKEND=s3",
-    "OPENDATA_LOAD_BACKEND=copy_local",
+    "OPENDATA_LOAD_BACKEND=s3_copy_rds",
     "OPENDATA_DERIVED_EXECUTOR=docker",
     "OPENDATA_EXTRACT_EXECUTOR=local",
     "OPENDATA_PG_OWNER_ROLE=${var.postgres_table_owner_role}",
     "S3_BUCKET=${var.landing_bucket_id}",
   ])
 
-  description = "Reference env flags for standard profile (Step 20 sets OPENDATA_LOAD_BACKEND=s3_copy_rds)."
+  description = "Reference env flags for standard profile (s3_copy_rds after Step 20)."
 
   tags = {
     Name = "${var.name_prefix}-standard-env-reference"

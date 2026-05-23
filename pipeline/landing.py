@@ -30,16 +30,12 @@ def landing_backend(environ: Mapping[str, str] | None = None) -> str:
 
 
 def load_backend(environ: Mapping[str, str] | None = None) -> str:
-    """``copy_local`` (default) downloads S3 objects then uses the existing COPY loader."""
+    """``copy_local`` downloads S3 objects then COPY; ``s3_copy_rds`` uses RDS ``aws_s3`` import."""
     envmap = environ if environ is not None else os.environ
     raw = (envmap.get("OPENDATA_LOAD_BACKEND") or "copy_local").strip().lower()
-    if raw == "copy_local":
+    if raw in ("copy_local", "s3_copy_rds"):
         return raw
-    if raw == "s3_copy_rds":
-        raise LandingError(
-            "OPENDATA_LOAD_BACKEND=s3_copy_rds is not implemented (Step 20 server-side COPY)"
-        )
-    raise LandingError(f"unknown OPENDATA_LOAD_BACKEND={raw!r}")
+    raise LandingError(f"unknown OPENDATA_LOAD_BACKEND={raw!r} (expected copy_local or s3_copy_rds)")
 
 
 def _require_boto3() -> Any:
@@ -291,13 +287,14 @@ def resolve_csv_path_for_load(
     *,
     work_dir: Path | None = None,
     environ: Mapping[str, str] | None = None,
-) -> Path:
-    """Return a local path suitable for COPY — download from S3 when needed."""
+) -> Path | str:
+    """Return a local path or ``s3://`` URI for the configured load backend."""
     if isinstance(path_or_uri, Path):
         return path_or_uri
     text = str(path_or_uri)
     if text.startswith("s3://"):
-        load_backend(environ)
+        if load_backend(environ) == "s3_copy_rds":
+            return text
         root = work_dir if work_dir is not None else Path(tempfile.mkdtemp(prefix="opendata_load_"))
         root.mkdir(parents=True, exist_ok=True)
         _, key = parse_s3_uri(text)
@@ -313,7 +310,7 @@ def resolve_table_csv_paths_for_load(
     *,
     work_dir: Path | None = None,
     environ: Mapping[str, str] | None = None,
-) -> dict[str, Path]:
+) -> dict[str, Path | str]:
     return {
         tn: resolve_csv_path_for_load(uri, work_dir=work_dir, environ=environ)
         for tn, uri in table_paths.items()

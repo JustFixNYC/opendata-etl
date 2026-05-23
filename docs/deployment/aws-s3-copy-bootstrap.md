@@ -120,7 +120,30 @@ python scripts/provision_roles.py \
 | Timeout from private VPC | NAT gateway for orchestrator; optional S3 VPC gateway endpoint |
 | SSL errors from Postico | SSL mode **Require**; use port forward target `127.0.0.1:15432` |
 
+## 6. Framework load backend (Step 20)
+
+On the orchestrator (or laptop with SSM port forward), set:
+
+```bash
+export OPENDATA_LANDING_BACKEND=s3
+export OPENDATA_LOAD_BACKEND=s3_copy_rds
+export OPENDATA_S3_COPY_REGION=us-east-1   # match landing bucket region
+export S3_BUCKET="$(terraform output -raw landing_bucket_name)"
+# DATABASE_URL as in section 5
+```
+
+Materialize a small dataset whose extract landed under `extract/` in the landing bucket. The framework calls `aws_s3.table_import_from_s3` inside RDS — CSV bytes do not stream through the Dagster host.
+
+Optional pytest smoke (after uploading a CSV to the landing bucket):
+
+```bash
+export OPENDATA_S3_COPY_RDS_SMOKE=1
+export OPENDATA_S3_COPY_SMOKE_BUCKET="$BUCKET"
+export OPENDATA_S3_COPY_SMOKE_KEY="extract/smoke-test/2026-05-22/rows.csv"
+pytest tests/test_s3_copy_rds.py::test_s3_copy_rds_aws_smoke -q
+```
+
 ## Next steps
 
-- **Step 20:** `pipeline/load/s3_copy_rds.py` and `OPENDATA_LOAD_BACKEND=s3_copy_rds`
+- **Step 21:** split extract and load Dagster assets (daytime / overnight)
 - **Operator checklist:** `/Users/maxwell/repos/_planning/extra-plans/opendata-etl-step-19b-aws-readiness-for-step-20.plan.md`

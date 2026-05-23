@@ -138,9 +138,10 @@ def test_build_derived_job_context_s3_output_uri(tmp_path: Path) -> None:
     assert ctx.csv_path_for_table("letter_counts") == ctx.output_dir / "letter_counts.csv"
 
 
-def test_load_backend_rejects_s3_copy_rds() -> None:
-    with pytest.raises(LandingError, match="Step 20"):
-        resolve_table_csv_paths_for_load(
-            {"t": "s3://b/k.csv"},
-            environ={"OPENDATA_LOAD_BACKEND": "s3_copy_rds"},
-        )
+def test_load_backend_s3_copy_rds_passes_through_s3_uri() -> None:
+    uri = "s3://opendata-landing/extract/d/2030-01-01/t.csv"
+    resolved = resolve_table_csv_paths_for_load(
+        {"t": uri},
+        environ={"OPENDATA_LOAD_BACKEND": "s3_copy_rds"},
+    )
+    assert resolved["t"] == uri

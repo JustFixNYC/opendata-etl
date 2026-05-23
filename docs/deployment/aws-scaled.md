@@ -25,7 +25,7 @@ flowchart TB
 
   orch -->|submit Jobs Steps 21-22| eks
   eks -->|extract/ derived/ CSVs| s3
-  orch -->|copy_local until Step 20| s3
+  orch -->|s3_copy_rds on RDS| s3
   orch -->|load + provision| aurora
   api -->|read-only SQL| aurora
 ```
@@ -59,7 +59,7 @@ For full steps (remote state, ECR, Dagster on EC2, first materialization), follo
 
 ```bash
 export OPENDATA_LANDING_BACKEND=s3
-export OPENDATA_LOAD_BACKEND=copy_local          # Step 20 → s3_copy_rds
+export OPENDATA_LOAD_BACKEND=s3_copy_rds         # or copy_local for non-RDS Postgres
 export OPENDATA_DERIVED_EXECUTOR=eks             # Step 21
 export OPENDATA_EXTRACT_EXECUTOR=eks             # Step 22
 export S3_BUCKET="<landing-bucket>"

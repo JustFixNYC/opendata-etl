@@ -7,8 +7,8 @@ Deployments declare a **`profile`** on `definitions.yml` (JSON Schema: `lite` | 
 | Profile | Host model | Extract | Derived jobs | Load |
 |---------|------------|---------|--------------|------|
 | `lite` | Single Docker Compose host | In-process on orchestrator | `OPENDATA_DERIVED_RUNNER=local` or `docker` on same host | COPY from local CSV |
-| `standard` | Stepping stone | Multiprocess + S3 landing | Docker or small EKS | Download S3 → COPY (`copy_local`) |
-| `scaled` | Aurora + S3 + EKS + split services (Step 19+) | EKS Jobs (Step 22) | EKS Jobs (Step 21) | Server-side COPY (Step 20) |
+| `standard` | EC2 orchestrator + RDS + S3 (no EKS) | In-process + S3 landing | `OPENDATA_DERIVED_RUNNER=docker` | Server-side COPY (`s3_copy_rds`) |
+| `scaled` | Aurora + S3 + EKS + split services (archived for JustFix) | EKS Jobs (archived) | EKS Jobs (archived) | Server-side COPY (`s3_copy_rds`) |
 
 When `profile` is omitted, the framework treats the deployment as **`lite`**.
 
@@ -41,7 +41,7 @@ Production manifests use `profile: scaled` (see `examples/definitions.prod.yml`)
 - S3 landing for extract and derived `output_uri` (`OPENDATA_LANDING_BACKEND=s3`)
 - Aurora PostgreSQL and Terraform under [`infra/aws/`](../infra/aws/README.md)
 - EKS Job workers instead of local/docker runners (Steps 21–22)
-- Server-side `COPY` from S3 into Aurora (Step 20)
+- Server-side `COPY` from S3 into RDS/Aurora via `OPENDATA_LOAD_BACKEND=s3_copy_rds` (Step 20; bootstrap in [aws-s3-copy-bootstrap.md](deployment/aws-s3-copy-bootstrap.md))
 
 **AWS guides (OSS):**
 

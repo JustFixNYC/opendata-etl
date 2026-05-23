@@ -44,7 +44,7 @@ def main(ctx: DerivedJobContext) -> None:
 | `OPENDATA_DERIVED_RUNNER` | `local` (default), `docker` | How to invoke job code |
 | `OPENDATA_DERIVED_IMAGE` | image ref | Required when runner is `docker` |
 | `OPENDATA_LANDING_BACKEND` | `local` (default), `s3` | Land derived CSVs on S3/MinIO |
-| `OPENDATA_LOAD_BACKEND` | `copy_local` (default) | Download S3 CSVs before COPY |
+| `OPENDATA_LOAD_BACKEND` | `copy_local` (default), `s3_copy_rds` | Local COPY or RDS server-side S3 import |
 | `DATABASE_URL` | Postgres DSN | Read-only upstream queries + load |
 | `S3_BUCKET`, `S3_*` | landing zone | Required when landing backend is `s3` |
 

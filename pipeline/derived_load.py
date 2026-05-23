@@ -17,10 +17,12 @@ from pipeline.landing import (
     LandingError,
     land_derived_csv,
     landing_backend,
+    load_backend,
     resolve_table_csv_paths_for_load,
 )
 from pipeline.repo_yaml import parse_repo_derived_jobs
-from pipeline.load.loader import LoaderError, load_dataset_tables_from_csv
+from pipeline.load.dispatch import load_dataset_tables
+from pipeline.load.loader import LoaderError
 from pipeline.provisioning import load_deployment_manifest, run_provisioning
 
 
@@ -148,7 +150,11 @@ def materialize_derived_job_bundle(
         owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
         run_provisioning(deployment_doc, dsn, table_owner_role=owner)
 
-    load_root = work_dir / "derived_load" / job_name / ctx.run_id
+    load_root = (
+        work_dir / "derived_load" / job_name / ctx.run_id
+        if landing_backend(envmap) == "s3" and load_backend(envmap) == "copy_local"
+        else None
+    )
     try:
         resolved_paths = resolve_table_csv_paths_for_load(
             table_csv_paths,
@@ -170,12 +176,13 @@ def materialize_derived_job_bundle(
             with conn.cursor() as cur:
                 cur.execute("CREATE EXTENSION IF NOT EXISTS postgis")
             conn.commit()
-            load_dataset_tables_from_csv(
+            load_dataset_tables(
                 conn,
                 target_schema=schema,
                 dataset_doc=doc,
-                table_csv_paths=resolved_paths,
+                table_sources=resolved_paths,
                 table_owner_role=owner,
+                environ=envmap,
             )
             for tn in table_names:
                 with conn.cursor() as cur:
