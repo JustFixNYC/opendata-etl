@@ -75,4 +75,4 @@ Adjust the SSM path if you changed `project_name` or `environment` in `terraform
 ## Related
 
 - [S3 COPY bootstrap](aws-s3-copy-bootstrap.md) — PostGIS and `aws_s3` extensions
-- [infra/aws/README.md](../../infra/aws/README.md) — Terraform outputs and smoke commands
+- [infra/aws/README.md](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md) — Terraform outputs and smoke commands

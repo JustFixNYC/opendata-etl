@@ -39,7 +39,7 @@ With `OPENDATA_LANDING_BACKEND=s3`, objects use `s3://{S3_BUCKET}/derived/{repo}
 Production manifests use `profile: scaled` (see `examples/definitions.prod.yml`). That path adds:
 
 - S3 landing for extract and derived `output_uri` (`OPENDATA_LANDING_BACKEND=s3`)
-- Aurora PostgreSQL and Terraform under [`infra/aws/`](../infra/aws/README.md)
+- Aurora PostgreSQL and Terraform under [`infra/aws/`](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md)
 - EKS Job workers instead of local/docker runners (Steps 21–22)
 - Server-side `COPY` from S3 into RDS/Aurora via `OPENDATA_LOAD_BACKEND=s3_copy_rds` (Step 20; bootstrap in [aws-s3-copy-bootstrap.md](deployment/aws-s3-copy-bootstrap.md))
 

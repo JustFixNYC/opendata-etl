@@ -1,6 +1,6 @@
 # AWS scaled deployment
 
-Production deployments use **`profile: scaled`** in `definitions.yml` (see [`examples/definitions.prod.yml`](../../examples/definitions.prod.yml)). Terraform under [`infra/aws/`](../../infra/aws/) provisions Aurora, S3 landing, EKS, ECR, and split security groups.
+Production deployments use **`profile: scaled`** in `definitions.yml` (see [`examples/definitions.prod.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.prod.yml)). Terraform under [`infra/aws/`](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md) provisions Aurora, S3 landing, EKS, ECR, and split security groups.
 
 ## Documentation map
 
@@ -9,7 +9,7 @@ Production deployments use **`profile: scaled`** in `definitions.yml` (see [`exa
 | [**Components explained**](aws-components.md) | Anyone new to AWS — what VPC, Aurora, S3, EKS, etc. do for opendata-etl |
 | [**First-time deploy**](aws-first-deploy.md) | Operator doing the initial Terraform apply and Dagster install |
 | [**Ongoing maintenance**](aws-maintenance.md) | Upgrades, scaling, Terraform change windows, backups |
-| [**infra/aws/README.md**](../../infra/aws/README.md) | Module layout and quick Terraform commands |
+| [**infra/aws/README.md**](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md) | Module layout and quick Terraform commands |
 
 Organization-specific sizing, budget, and runbooks belong in **your internal planning repo**, not in this OSS framework.
 

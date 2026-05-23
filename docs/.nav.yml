@@ -17,6 +17,8 @@ nav:
       - Ongoing maintenance: deployment/aws-maintenance.md
   - DigitalOcean scaled: deployment/digitalocean-scaled.md
   - Column naming: column-names.md
+  - Legacy nycdb importer: legacy-nycdb-importer.md
+  - Python derived jobs: python-derived-jobs.md
   - Definition repo docs:
       - Overview: generated/definition_repos/index.md
       - glob: "generated/definition_repos/*/"

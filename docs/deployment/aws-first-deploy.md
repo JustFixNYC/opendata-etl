@@ -13,7 +13,7 @@ For **what each AWS piece does**, read [Components explained](aws-components.md)
 - [ ] **Terraform** >= 1.5 and **AWS CLI** v2 installed and configured (`aws sts get-caller-identity`).
 - [ ] **kubectl** (for EKS smoke tests).
 - [ ] **Docker** (to build/push images).
-- [ ] `definitions.yml` for production (start from [`examples/definitions.prod.yml`](../../examples/definitions.prod.yml)).
+- [ ] `definitions.yml` for production (start from [`examples/definitions.prod.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.prod.yml)).
 
 ### Choose orchestrator host
 
@@ -247,4 +247,4 @@ For high public traffic, plan an **Application Load Balancer** and health checks
 
 - [AWS scaled overview](aws-scaled.md)
 - [Components explained](aws-components.md)
-- [`infra/aws/README.md`](../../infra/aws/README.md)
+- [`infra/aws/README.md`](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md)

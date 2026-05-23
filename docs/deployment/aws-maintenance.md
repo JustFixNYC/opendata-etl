@@ -130,7 +130,7 @@ terraform apply tfplan
 2. Export current outputs: `terraform output > outputs-before.txt`.
 3. Run `plan`; if destroy of Aurora or state bucket appears, **stop** and ask for review.
 4. Apply during low traffic.
-5. Run smoke tests from [First-time deploy](aws-first-deploy.md#part-3--terraform-init-plan-apply).
+5. Run smoke tests from [First-time deploy](aws-first-deploy.md#part-3-terraform-init-plan-apply).
 6. Watch Dagster + API for 24 hours.
 
 ### Rollback
