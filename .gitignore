@@ -32,3 +32,6 @@ docs/generated/
 **/models/target/
 **/models/dbt_packages/
 **/models/logs/
+
+# Terraform
+terraform.tfvars

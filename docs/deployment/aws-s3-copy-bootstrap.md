@@ -89,19 +89,32 @@ Expected: two rows. On failure, check IAM role association, bucket policy (Terra
 
 ## 5. Framework role provisioning
 
-After extensions work, run framework provisioning against a POC `definitions.yml` subset:
+Run on your **laptop** from the framework repo root (with venv / `pip install -e ".[dev]"`). The orchestrator EC2 does not ship Python or this repo — use SSM port forward (see [Database access](aws-database-access.md)) so RDS is reachable at `127.0.0.1:15432` while the forward session is open.
 
 ```bash
-export DATABASE_URL="postgresql://opendata_admin:<password>@<database_endpoint>:5432/opendata?sslmode=require"
-python scripts/provision_roles.py --definitions examples/definitions.poc.yml
+cd infra/aws
+export PGPASSWORD="$(aws ssm get-parameter \
+  --name "$(terraform output -raw master_password_ssm)" \
+  --with-decryption --query Parameter.Value --output text)"
+export DATABASE_URL="postgresql://opendata_admin:${PGPASSWORD}@127.0.0.1:15432/opendata?sslmode=require"
+
+cd ../..
+export OPENDATA_PG_OWNER_ROLE=opendata_admin
+python scripts/provision_roles.py \
+  --manifest examples/definitions.local.yml \
+  --table-owner-role opendata_admin
 ```
 
-(`definitions.poc.yml` is added in Step 22; use a minimal manifest until then.)
+- CLI flag is **`--manifest`**, not `--definitions`.
+- **Table owner role:** Lite Docker uses `opendata`; RDS POC only has the Terraform master user (`opendata_admin` by default). Pass **`--table-owner-role opendata_admin`** (and set `OPENDATA_PG_OWNER_ROLE` for later loads) so `CREATE SCHEMA ... AUTHORIZATION` succeeds.
+- **`examples/definitions.poc.yml`** is added in Step 22; until then use `definitions.local.yml` or another manifest that lists only the definition repos you want on this POC database.
+- If RDS is reachable without port forward (e.g. from orchestrator after you install Python there), set `DATABASE_URL` with `terraform output -raw database_endpoint` as the host instead of `127.0.0.1`.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |--------|--------|
+| `role "opendata" does not exist` | Use `--table-owner-role opendata_admin` (RDS master user), not lite default `opendata` |
 | `aws_s3` extension missing | Engine version 16.x; run bootstrap SQL as master |
 | `permission denied` on S3 import | `aws_db_instance_role_association` + IAM role policy + bucket policy |
 | Timeout from private VPC | NAT gateway for orchestrator; optional S3 VPC gateway endpoint |

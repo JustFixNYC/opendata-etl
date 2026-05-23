@@ -150,6 +150,7 @@ resource "aws_ssm_parameter" "standard_env" {
     "OPENDATA_LOAD_BACKEND=copy_local",
     "OPENDATA_DERIVED_EXECUTOR=docker",
     "OPENDATA_EXTRACT_EXECUTOR=local",
+    "OPENDATA_PG_OWNER_ROLE=${var.postgres_table_owner_role}",
     "S3_BUCKET=${var.landing_bucket_id}",
   ])
 

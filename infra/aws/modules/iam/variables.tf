@@ -14,3 +14,8 @@ variable "landing_bucket_arn" {
 variable "landing_bucket_id" {
   type = string
 }
+
+variable "postgres_table_owner_role" {
+  type        = string
+  description = "Postgres role that owns loaded tables (RDS master user on POC)."
+}

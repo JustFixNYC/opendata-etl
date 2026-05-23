@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 resource "aws_security_group" "postgres" {
   name        = "${var.name_prefix}-postgres"
-  description = "RDS PostgreSQL — ingress from orchestrator and API hosts only."
+  description = "RDS PostgreSQL - ingress from orchestrator and API hosts only."
   vpc_id      = var.vpc_id
 
   egress {
@@ -20,7 +20,7 @@ resource "aws_security_group" "postgres" {
 
 resource "aws_security_group" "orchestrator" {
   name        = "${var.name_prefix}-orchestrator"
-  description = "Dagster orchestrator — extract/load assets, reaches RDS and S3."
+  description = "Dagster orchestrator - extract/load assets, reaches RDS and S3."
   vpc_id      = var.vpc_id
 
   ingress {
@@ -47,7 +47,7 @@ resource "aws_security_group" "orchestrator" {
 
 resource "aws_security_group" "api" {
   name        = "${var.name_prefix}-api"
-  description = "Read-only FastAPI — query traffic only; no batch extract/derived."
+  description = "Read-only FastAPI - query traffic only; no batch extract/derived."
   vpc_id      = var.vpc_id
 
   ingress {

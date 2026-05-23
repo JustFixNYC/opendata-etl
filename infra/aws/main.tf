@@ -58,10 +58,11 @@ module "ecr" {
 module "iam" {
   source = "./modules/iam"
 
-  name_prefix        = local.name_prefix
-  ssm_prefix         = local.ssm_prefix
-  landing_bucket_arn = module.landing.bucket_arn
-  landing_bucket_id  = module.landing.bucket_id
+  name_prefix               = local.name_prefix
+  ssm_prefix                = local.ssm_prefix
+  landing_bucket_arn        = module.landing.bucket_arn
+  landing_bucket_id         = module.landing.bucket_id
+  postgres_table_owner_role = var.postgres_master_username
 }
 
 module "orchestrator" {

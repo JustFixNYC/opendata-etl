@@ -44,7 +44,7 @@ variable "api_ingress_cidr_blocks" {
 variable "postgres_engine_version" {
   type        = string
   description = "RDS PostgreSQL engine version."
-  default     = "16.4"
+  default     = "16.6"
 }
 
 variable "postgres_instance_class" {

@@ -50,9 +50,9 @@ resource "aws_db_instance" "this" {
   publicly_accessible = false
   deletion_protection = var.deletion_protection
 
-  backup_retention_period      = var.backup_retention_days
-  preferred_backup_window      = "03:00-04:00"
-  preferred_maintenance_window = "sun:04:00-sun:05:00"
+  backup_retention_period = var.backup_retention_days
+  backup_window           = "03:00-04:00"
+  maintenance_window      = "sun:04:00-sun:05:00"
 
   enabled_cloudwatch_logs_exports = ["postgresql"]
 

@@ -30,7 +30,6 @@ resource "aws_ecr_repository" "derived" {
 
   tags = {
     Name = "${var.name_prefix}-ecr-derived"
-    Note = "Per-repo derived images: push as ${var.name_prefix}/derived/<repo-name>"
   }
 }
 
