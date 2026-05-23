@@ -8,26 +8,28 @@ For **what each AWS piece does**, read [Components explained](aws-components.md)
 
 ### Checklist
 
-- [ ] AWS account with **billing alerts** (Cost Explorer → Budgets).
-- [ ] IAM user or role with permission to create VPC, RDS, S3, EC2, IAM, SSM (AdministratorAccess for first apply is simplest; narrow later).
-- [ ] **Terraform** >= 1.5 and **AWS CLI** v2 + **Session Manager plugin** (`aws sts get-caller-identity`).
-- [ ] **Docker** (build/push images to ECR).
-- [ ] POC manifest: [`examples/definitions.poc.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.poc.yml) (`profile: standard`, subset `enabled_datasets`).
+- AWS account with **billing alerts** (Cost Explorer → Budgets).
+- IAM user or role with permission to create VPC, RDS, S3, EC2, IAM, SSM (AdministratorAccess for first apply is simplest; narrow later).
+- **Terraform** >= 1.5 and **AWS CLI** v2 + **Session Manager plugin** (`aws sts get-caller-identity`).
+- **Docker** (build/push images to ECR).
+- POC manifest: `[examples/definitions.poc.yml](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.poc.yml)` (`profile: standard`, subset `enabled_datasets`).
 
 ### Host layout (standard profile)
 
-| Host | Role |
-|------|------|
+
+| Host                 | Role                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------ |
 | **Orchestrator EC2** | Dagster webserver + daemon; daytime **extract**; overnight **load**, derived (docker), dbt |
-| **API EC2** | FastAPI read-only API only |
-| **RDS PostgreSQL** | Writer for batch and API (no reader replica in POC) |
-| **S3** | Landing `extract/` and `derived/` prefixes |
+| **API EC2**          | FastAPI read-only API only                                                                 |
+| **RDS PostgreSQL**   | Writer for batch and API (no reader replica in POC)                                        |
+| **S3**               | Landing `extract/` and `derived/` prefixes                                                 |
+
 
 ### Estimated time
 
 - First `terraform apply`: ~20–30 minutes (no EKS).
 - Bootstrap + provisioning + Docker: 1–2 hours.
-- First split materialization: dataset-dependent; Part 9 below is a short checklist — full phased runbook: [**Parallel POC validation**](aws-poc-validation.md) (Step 23).
+- First split materialization: dataset-dependent; Part 9 below is a short checklist — full phased runbook: **[Parallel POC validation](aws-poc-validation.md)** (Step 23).
 
 ## Part 1 — Terraform state (POC: local)
 
@@ -44,16 +46,18 @@ cp terraform.tfvars.example terraform.tfvars
 
 Edit `terraform.tfvars`:
 
-| Variable | What to set |
-|----------|-------------|
-| `environment` | `poc` for parallel stack |
-| `admin_cidr_blocks` | Office/VPN CIDR for Dagster UI (port 3000) — **not** `0.0.0.0/0` unless intentional |
-| `api_ingress_cidr_blocks` | CIDR allowed to reach API port 8000 on the API security group |
-| `postgres_instance_class` | POC default `db.t4g.medium` |
-| `single_nat_gateway` | `true` for cost |
-| `landing_bucket_force_destroy` | `true` for ephemeral POC only |
-| `create_orchestrator_instance` | `true` |
-| `create_api_instance` | `true` for full standard POC (split API EC2) |
+
+| Variable                       | What to set                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| `environment`                  | `poc` for parallel stack                                                            |
+| `admin_cidr_blocks`            | Office/VPN CIDR for Dagster UI (port 3000) — **not** `0.0.0.0/0` unless intentional |
+| `api_ingress_cidr_blocks`      | CIDR allowed to reach API port 8000 on the API security group                       |
+| `postgres_instance_class`      | POC default `db.t4g.medium`                                                         |
+| `single_nat_gateway`           | `true` for cost                                                                     |
+| `landing_bucket_force_destroy` | `true` for ephemeral POC only                                                       |
+| `create_orchestrator_instance` | `true`                                                                              |
+| `create_api_instance`          | `true` for full standard POC (split API EC2)                                        |
+
 
 Review cost in your org’s planning docs before `apply`.
 
@@ -170,7 +174,7 @@ sudo usermod -aG docker ssm-user
 
 **Pull the framework image from ECR** (required before `docker run`). Run these commands **on the orchestrator EC2** (inside `aws ssm start-session`), not on your laptop. Part 5 push is from the laptop only.
 
-The ECR Docker username is always the literal string **`AWS`** (not your IAM user name). The password is the token from `aws ecr get-login-password`.
+The ECR Docker username is always the literal string `**AWS`** (not your IAM user name). The password is the token from `aws ecr get-login-password`.
 
 ```bash
 REGION=us-east-1
@@ -187,9 +191,9 @@ sudo docker pull "${ECR_URL}:poc"
 
 On the orchestrator, `aws` uses the **instance profile** (no access keys). If you run the same login on your **Mac** for testing, omit `sudo` (Docker Desktop does not use sudo).
 
-Use **`sudo docker login`** when you use **`sudo docker run`** — credentials are per user; `ssm-user` login does not apply to root.
+Use `**sudo docker login`** when you use `**sudo docker run**` — credentials are per user; `ssm-user` login does not apply to root.
 
-**Common mistakes:** `--username terraform` or your email → always **`AWS`**; `sudo` on a Mac → password prompts and failed login; broken `ECR_URL` across two lines → invalid pull URL.
+**Common mistakes:** `--username terraform` or your email → always `**AWS`**; `sudo` on a Mac → password prompts and failed login; broken `ECR_URL` across two lines → invalid pull URL.
 
 Create `/etc/opendata-etl/env` (root-only, `chmod 600`):
 
@@ -202,7 +206,6 @@ OPENDATA_EXTRACT_EXECUTOR=local
 OPENDATA_DAGSTER_MATERIALIZE=full
 OPENDATA_PG_OWNER_ROLE=opendata_admin
 OPENDATA_S3_COPY_REGION=us-east-1
-AWS_DEFAULT_REGION=us-east-1
 
 S3_BUCKET=<landing_bucket_name from terraform output>
 DATABASE_URL=postgresql://opendata_admin:<password>@<database_endpoint>:5432/opendata?sslmode=require
@@ -248,19 +251,6 @@ sudo docker run -d --name dagster \
 
 Mounting `docker.sock` allows `OPENDATA_DERIVED_RUNNER=docker` on the same host. Harden for production (dedicated derived runner, pinned images).
 
-**S3 credentials inside the Dagster container:** extract/load use the orchestrator **instance profile** via the default boto3 chain (no `S3_ACCESS_KEY_ID` in env). The EC2 **IMDS hop limit must be 2** so Docker can reach instance metadata. If extract fails with `Unable to locate credentials`, on your laptop:
-
-```bash
-ORCH_ID=$(terraform -chdir=infra/aws output -raw orchestrator_instance_id)
-aws ec2 modify-instance-metadata-options \
-  --instance-id "$ORCH_ID" \
-  --http-put-response-hop-limit 2 \
-  --http-endpoint enabled \
-  --http-tokens required
-```
-
-Then on the orchestrator: `sudo docker restart dagster` and retry materialization. New Terraform applies set hop limit 2 by default (`modules/orchestrator`).
-
 Dagster UI via **SSM port forwarding** (private instance):
 
 ```bash
@@ -286,11 +276,13 @@ Each dataset has two phases — **extract** (download → S3) and **load** (serv
 
 POC examples (`definitions.poc.yml`):
 
-| Step | Asset key (example) |
-|------|-------------------|
+
+| Step                    | Asset key (example)                                  |
+| ----------------------- | ---------------------------------------------------- |
 | Extract `fixture_hello` | `nycdb2/nyc_housing/fixture_hello/extract/greetings` |
-| Load `fixture_hello` | `nycdb2/nyc_housing/fixture_hello/load/greetings` |
-| dbt (optional) | `nycdb2/nyc_housing/dbt/fixture_greeting_count` |
+| Load `fixture_hello`    | `nycdb2/nyc_housing/fixture_hello/load/greetings`    |
+| dbt (optional)          | `nycdb2/nyc_housing/dbt/fixture_greeting_count`      |
+
 
 **Rules:** always materialize **extract** before **load** for the same dataset; load assets depend on extract landing objects in S3.
 
@@ -301,15 +293,6 @@ Optional sanity check on the **orchestrator**:
 ```bash
 sudo docker exec dagster dagster definitions validate -m pipeline.dagster_defs
 ```
-
-**CLI note:** The framework image includes `dagster` (and `dagster dev`) but **not** the separate [`dagster-dg-cli`](https://pypi.org/project/dagster-dg-cli/) package (`dg` command). You may see a `SupersessionWarning` when using `dagster asset materialize`; it still works for POC. Use:
-
-```bash
-sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/<dataset>/extract/<table>'
-```
-
-Migrating docs/scripts to `dg launch --assets …` is **deferred** (needs `dagster-dg-cli` in the image and workspace layout review).
 
 #### Minimum materialization (API smoke + quick wiring proof)
 
@@ -357,15 +340,9 @@ Use the **Launchpad** if you need to rematerialize a single asset; logs show ext
 For full parallel POC validation (second dataset + dbt), continue with Part **9** or the phased checklist in [Parallel POC validation](aws-poc-validation.md#phase-c--split-materialization-proof):
 
 ```bash
-# Tier B extract — rentstab_v2 (CSV; works with stock image)
+# Tier B extract (pick rentstab_v2 and/or nycc; nycc needs ogr2ogr in the image)
 sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
   --select 'nycdb2/nyc_housing/rentstab_v2/extract/rentstab_v2'
-
-# nycc (shapefile) requires ogr2ogr/GDAL — not in the stock Dockerfile today; verify:
-sudo docker exec dagster sh -c 'command -v ogr2ogr || echo MISSING_GDAL'
-# If MISSING_GDAL, use rentstab_v2 for Tier B proof or rebuild the image with gdal-bin (see docs/local-development.md).
-sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/nycc/extract/nycc'
 
 sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
   --select 'nycdb2/nyc_housing/rentstab_v2/load/rentstab_v2'
@@ -389,18 +366,19 @@ sudo docker logs dagster 2>&1 | grep -iE 'load_definitions|git clone|embedded|Us
 sudo docker exec dagster dagster asset list -m pipeline.dagster_defs 2>/dev/null | grep nycdb2 | head
 ```
 
-In the UI, search **`fixture_hello`** or **`nyc_housing`** — asset keys are five segments (`nycdb2/.../extract/...`).
+In the UI, search `**fixture_hello**` or `**nyc_housing**` — asset keys are five segments (`nycdb2/.../extract/...`).
 
 **Troubleshooting materialization**
 
-| Symptom | Check |
-|---------|--------|
-| Empty asset list / no **nycdb2** | Wrong manifest: container defaulted to image `definitions.local.yml` (`file://` path fails on EC2 → **embedded** `example_collection` fallback). Fix env + mount below; restart container |
-| Only `example_collection` / `ex_housing` assets | Same as above — clone failed; check `docker logs dagster` for `load_definitions failed` or `git clone failed` |
-| Extract fails | Outbound HTTPS/NAT; source URL reachable from orchestrator |
-| Load fails S3 COPY | Part **4** `aws_s3` bootstrap; `OPENDATA_LOAD_BACKEND=s3_copy_rds`; `S3_BUCKET` in env |
-| Load before extract | Run extract asset first; `extract_landing_exists` check on load |
-| Extract: `Unable to locate credentials` on S3 put | Docker cannot reach EC2 instance profile when IMDS hop limit is **1** — set hop limit **2** (below) and restart `dagster` container |
+
+| Symptom                                         | Check                                                                                                                                                                                     |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Empty asset list / no **nycdb2**                | Wrong manifest: container defaulted to image `definitions.local.yml` (`file://` path fails on EC2 → **embedded** `example_collection` fallback). Fix env + mount below; restart container |
+| Only `example_collection` / `ex_housing` assets | Same as above — clone failed; check `docker logs dagster` for `load_definitions failed` or `git clone failed`                                                                             |
+| Extract fails                                   | Outbound HTTPS/NAT; source URL reachable from orchestrator                                                                                                                                |
+| Load fails S3 COPY                              | Part **4** `aws_s3` bootstrap; `OPENDATA_LOAD_BACKEND=s3_copy_rds`; `S3_BUCKET` in env                                                                                                    |
+| Load before extract                             | Run extract asset first; `extract_landing_exists` check on load                                                                                                                           |
+
 
 ## Part 7 — API EC2 (split deploy)
 
@@ -429,7 +407,7 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker ssm-user
 ```
 
-**ECR login + pull** (on this API host; username must be **`AWS`**):
+**ECR login + pull** (on this API host; username must be `**AWS`**):
 
 ```bash
 REGION=us-east-1
@@ -488,7 +466,7 @@ sudo chmod 644 /etc/opendata-etl/definitions.yml
 On the **API instance**, set `DB_HOST` from your laptop: `terraform -chdir=infra/aws output -raw database_endpoint`. Use the read passwords from **7.2**.
 
 ```bash
-DB_HOST="opendata-etl-poc-postgres.<password>.us-east-1.rds.amazonaws.com"
+DB_HOST="opendata-etl-poc-postgres.clswhoz2jjq7.us-east-1.rds.amazonaws.com"
 DB_PASS="$(aws ssm get-parameter \
   --name /opendata-etl/poc/postgres/master_password \
   --with-decryption --query Parameter.Value --output text)"
@@ -506,11 +484,13 @@ EOF
 sudo chmod 600 /etc/opendata-etl/api.env
 ```
 
-| Variable | Purpose |
-|----------|---------|
+
+| Variable                                        | Purpose                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------- |
 | `DATABASE_URL` / `OPENDATA_API_KEYS_LOOKUP_DSN` | Admin connection to read `opendata_auth.api_keys` when verifying API keys |
-| `OPENDATA_API_ROLE_DSNS` | One libpq URI per read role the API executes SQL as |
-| `OPENDATA_DEFINITIONS_*` | Clone `nycdb2` and register YAML routes (needs outbound HTTPS via NAT) |
+| `OPENDATA_API_ROLE_DSNS`                        | One libpq URI per read role the API executes SQL as                       |
+| `OPENDATA_DEFINITIONS_*`                        | Clone `nycdb2` and register YAML routes (needs outbound HTTPS via NAT)    |
+
 
 ### 7.5 — Run FastAPI container
 
@@ -586,7 +566,7 @@ Copy these into orchestrator and API env files; add `DATABASE_URL` and secrets s
 
 **Minimum wiring** (fixture + API smoke): Part **6** — [Materialize POC assets](#materialize-poc-assets-orchestrator) (`fixture_hello` extract → load).
 
-**Full POC subset** (second dataset + dbt + overnight window): follow the extended commands in that same section, or the phased checklist in [**Parallel POC validation**](aws-poc-validation.md) Phase C.
+**Full POC subset** (second dataset + dbt + overnight window): follow the extended commands in that same section, or the phased checklist in **[Parallel POC validation](aws-poc-validation.md)** Phase C.
 
 Checklist:
 
@@ -600,34 +580,37 @@ On `profile: standard`, schedules use extract **10:00** and load **02:00** `Amer
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---------|----------------|
-| `terraform plan` shows EKS resources | Wrong branch/tfvars; active tree is 19b (RDS only) |
-| Cannot reach RDS from laptop | DB is private — use SSM port forward ([aws-database-access.md](aws-database-access.md)) |
-| Dagster empty asset list / no nycdb2 | `OPENDATA_DEFINITIONS_MANIFEST_PATH` + volume mount; `OPENDATA_DAGSTER_DEFINITION_LOAD=clone`; see Part **6** diagnostics; restart after env fix |
-| Load fails on S3 | Missing `aws_s3` bootstrap or RDS S3 import IAM ([aws-s3-copy-bootstrap.md](aws-s3-copy-bootstrap.md)) |
-| `s3_copy_rds` errors | `OPENDATA_LOAD_BACKEND` not set; URI not `s3://` |
-| API 503 / pool errors | Complete Part **7.2–7.4** (`OPENDATA_API_ROLE_DSNS` + read-role passwords); re-run `provision_roles.py` if roles missing |
-| API starts but no routes / 404 | Part **7.3–7.5**: manifest mount + `OPENDATA_DEFINITIONS_*`; check `docker logs api` for git clone errors |
-| `hello_by_id` empty or 404 | Load `fixture_hello` first (Part **6** materialize); table `nyc_housing.greetings` must exist |
-| Derived job fails | Docker socket not mounted on orchestrator; image not in ECR |
-| `invalid reference format` / `:poc` | `ECR_URL` empty — run `terraform output` from `infra/aws` after apply |
-| `no basic auth credentials` on ECR pull/run | Run login/pull **on orchestrator**; `--username AWS` (not IAM user); `sudo docker login` if using `sudo docker run` |
-| `sudo: a password is required` during Part 6 | You are on your **Mac**, not EC2 — use SSM session, or drop `sudo` for Docker Desktop |
-| ECR login “Sorry, try again” (Password) | Wrong `--username` (must be `AWS`) or `sudo` on Mac; not your AWS/IAM password |
-| `AccessDenied` on `DescribeRepositories` | Expected on orchestrator — set `ECR_URL` manually (see Part 6); login can still succeed |
-| `invalid reference format` after login | `ECR_URL` empty — fix URL, then `sudo docker pull "${ECR_URL}:poc"` again |
-| ECR `AccessDenied` on **api** role | Run `terraform apply` in `infra/aws` (API IAM needs `ecr:GetAuthorizationToken`); see Part 7 |
+
+| Symptom                                      | Likely cause                                                                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `terraform plan` shows EKS resources         | Wrong branch/tfvars; active tree is 19b (RDS only)                                                                                               |
+| Cannot reach RDS from laptop                 | DB is private — use SSM port forward ([aws-database-access.md](aws-database-access.md))                                                          |
+| Dagster empty asset list / no nycdb2         | `OPENDATA_DEFINITIONS_MANIFEST_PATH` + volume mount; `OPENDATA_DAGSTER_DEFINITION_LOAD=clone`; see Part **6** diagnostics; restart after env fix |
+| Load fails on S3                             | Missing `aws_s3` bootstrap or RDS S3 import IAM ([aws-s3-copy-bootstrap.md](aws-s3-copy-bootstrap.md))                                           |
+| `s3_copy_rds` errors                         | `OPENDATA_LOAD_BACKEND` not set; URI not `s3://`                                                                                                 |
+| API 503 / pool errors                        | Complete Part **7.2–7.4** (`OPENDATA_API_ROLE_DSNS` + read-role passwords); re-run `provision_roles.py` if roles missing                         |
+| API starts but no routes / 404               | Part **7.3–7.5**: manifest mount + `OPENDATA_DEFINITIONS_`*; check `docker logs api` for git clone errors                                        |
+| `hello_by_id` empty or 404                   | Load `fixture_hello` first (Part **6** materialize); table `nyc_housing.greetings` must exist                                                    |
+| Derived job fails                            | Docker socket not mounted on orchestrator; image not in ECR                                                                                      |
+| `invalid reference format` / `:poc`          | `ECR_URL` empty — run `terraform output` from `infra/aws` after apply                                                                            |
+| `no basic auth credentials` on ECR pull/run  | Run login/pull **on orchestrator**; `--username AWS` (not IAM user); `sudo docker login` if using `sudo docker run`                              |
+| `sudo: a password is required` during Part 6 | You are on your **Mac**, not EC2 — use SSM session, or drop `sudo` for Docker Desktop                                                            |
+| ECR login “Sorry, try again” (Password)      | Wrong `--username` (must be `AWS`) or `sudo` on Mac; not your AWS/IAM password                                                                   |
+| `AccessDenied` on `DescribeRepositories`     | Expected on orchestrator — set `ECR_URL` manually (see Part 6); login can still succeed                                                          |
+| `invalid reference format` after login       | `ECR_URL` empty — fix URL, then `sudo docker pull "${ECR_URL}:poc"` again                                                                        |
+| ECR `AccessDenied` on **api** role           | Run `terraform apply` in `infra/aws` (API IAM needs `ecr:GetAuthorizationToken`); see Part 7                                                     |
+
 
 ## What's next
 
 - [Ongoing maintenance](aws-maintenance.md) (adjust for RDS where Aurora is mentioned)
-- [**Parallel POC validation**](aws-poc-validation.md) — phases A–C (Step 23)
+- **[Parallel POC validation](aws-poc-validation.md)** — phases A–C (Step 23)
 - [Deployment profiles](../deployment-profiles.md) — `standard` vs `lite` vs archived `scaled`
 
 ## Related
 
-- [`infra/aws/README.md`](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md)
+- `[infra/aws/README.md](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md)`
 - [RDS S3 COPY bootstrap](aws-s3-copy-bootstrap.md)
 - [Database access (SSM)](aws-database-access.md)
 - Archived EKS/Aurora path: [AWS scaled overview](aws-scaled.md)
+
