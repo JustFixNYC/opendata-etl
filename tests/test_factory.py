@@ -242,12 +242,27 @@ def test_dagster_definitions_non_empty() -> None:
     pytest.importorskip("dagster")
     from dagster import AssetKey
 
-    from pipeline.factory import dagster_definitions_from_load_result, embedded_example_load_result
+    from pipeline.factory import (
+        DATASET_PHASE_EXTRACT,
+        dagster_definitions_from_load_result,
+        dataset_phase_asset_key_parts,
+        embedded_example_load_result,
+    )
 
     root = Path(__file__).resolve().parents[1]
     defs = dagster_definitions_from_load_result(embedded_example_load_result(root))
     assert len(defs.get_repository_def().assets_defs_by_key) >= 4
-    ak = AssetKey(["example_collection", "ex_housing", "sample_csv", "rows"])
+    ak = AssetKey(
+        list(
+            dataset_phase_asset_key_parts(
+                "example_collection",
+                "ex_housing",
+                "sample_csv",
+                DATASET_PHASE_EXTRACT,
+                "rows",
+            )
+        )
+    )
     assert ak in defs.get_repository_def().assets_defs_by_key
     if shutil.which("dbt"):
         pytest.importorskip("dagster_dbt")

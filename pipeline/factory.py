@@ -97,6 +97,34 @@ def table_asset_key_parts(repo_name: str, schema: str, dataset_name: str, table_
     return (repo_name, schema, dataset_name, table_name)
 
 
+DATASET_PHASE_EXTRACT = "extract"
+DATASET_PHASE_LOAD = "load"
+
+
+def dataset_phase_asset_key_parts(
+    repo_name: str,
+    schema: str,
+    dataset_name: str,
+    phase: str,
+    table_name: str,
+) -> tuple[str, str, str, str, str]:
+    """Five-segment keys for split extract/load dataset assets.
+
+    Shape: ``{repo}/{schema}/{dataset}/{phase}/{table}`` where ``phase`` is
+    ``extract`` (download + land) or ``load`` (COPY + atomic swap).
+    Derived jobs keep the four-segment ``{repo}/{schema}/{job}/{table}`` keys.
+    """
+    if phase not in (DATASET_PHASE_EXTRACT, DATASET_PHASE_LOAD):
+        raise ValueError(f"unknown dataset materialization phase {phase!r}")
+    return (repo_name, schema, dataset_name, phase, table_name)
+
+
+def table_asset_key_to_load_phase(key: tuple[str, str, str, str]) -> tuple[str, str, str, str, str]:
+    """Map a logical four-segment table key to the dataset **load** asset key."""
+    repo, schema, dataset, table = key
+    return dataset_phase_asset_key_parts(repo, schema, dataset, DATASET_PHASE_LOAD, table)
+
+
 def _validate_dataset_schedule_cron(repo_name: str, dataset_name: str, cron: str) -> None:
     try:
         from dagster._utils.schedules import is_valid_cron_string
@@ -107,6 +135,46 @@ def _validate_dataset_schedule_cron(repo_name: str, dataset_name: str, cron: str
         ) from e
     if not is_valid_cron_string(cron):
         raise ValueError(f"{repo_name}: dataset {dataset_name!r}: invalid schedule cron {cron!r}")
+
+
+def _schedule_timezone_for_profile(profile: str) -> str:
+    if profile in ("standard", "scaled"):
+        return "America/New_York"
+    return "UTC"
+
+
+def _cron_day_of_week(cron: str) -> str:
+    parts = cron.strip().split()
+    if len(parts) != 5:
+        return "*"
+    return parts[4]
+
+
+def extract_schedule_cron_from_yaml(yaml_cron: str, *, profile: str) -> str:
+    """Map dataset YAML cron to a **daytime extract** schedule.
+
+    ``standard`` / ``scaled``: 10:00 America/New_York (outside 22:00–07:00 local).
+    ``lite``: preserve YAML cron in UTC.
+    """
+    dow = _cron_day_of_week(yaml_cron)
+    if profile in ("standard", "scaled"):
+        return f"0 10 * * {dow}"
+    return yaml_cron.strip()
+
+
+def load_schedule_cron_from_yaml(yaml_cron: str, *, profile: str) -> str:
+    """Map dataset YAML cron to an **overnight load** schedule.
+
+    ``standard`` / ``scaled``: 02:00 America/New_York (inside 22:00–07:00 local).
+    In UTC that is roughly 07:00 UTC (EST) or 06:00 UTC (EDT) — see deployment docs.
+    ``lite``: 07:00 UTC (still inside NYC overnight window).
+    """
+    dow = _cron_day_of_week(yaml_cron)
+    if profile in ("standard", "scaled"):
+        return f"0 2 * * {dow}"
+    if dow != "*":
+        return f"0 7 * * {dow}"
+    return "0 7 * * *"
 
 
 def _sanitize_python_identifier(name: str) -> str:
@@ -547,6 +615,8 @@ def dagster_definitions_from_load_result(
     root = repo_root.resolve() if repo_root is not None else _REPO_ROOT
     try:
         from dagster import (
+            AssetCheckResult,
+            AssetCheckSeverity,
             AssetKey,
             AssetSelection,
             AssetSpec,
@@ -566,6 +636,7 @@ def dagster_definitions_from_load_result(
         ) from e
 
     from pipeline import monitoring
+    from pipeline.derived_context import deployment_profile
     from pipeline.notifications import slack_run_failure_sensors
 
     specs = collect_table_skeleton_specs(load_result.repos)
@@ -573,9 +644,12 @@ def dagster_definitions_from_load_result(
     assets: list[Any] = []
     asset_checks: list[Any] = []
     bundle_def_by_key: dict[tuple[str, str, str, str], Any] = {}
+    dataset_load_def_by_key: dict[tuple[str, str, str, str], Any] = {}
     repo_by_name = {r.name: r for r in load_result.repos}
     cred_decls_raw = load_result.deployment.get("source_credentials") or {}
     credential_decls = cred_decls_raw if isinstance(cred_decls_raw, dict) else {}
+    deploy_profile = deployment_profile(load_result.deployment)
+    schedule_tz = _schedule_timezone_for_profile(deploy_profile)
 
     def _dagster_materialize_mode() -> str:
         raw = (os.environ.get("OPENDATA_DAGSTER_MATERIALIZE") or "auto").strip().lower()
@@ -585,12 +659,62 @@ def dagster_definitions_from_load_result(
             f"Unknown OPENDATA_DAGSTER_MATERIALIZE={raw!r} (expected auto, skeleton, or full)"
         )
 
+    def _should_run_full_extract() -> bool:
+        mode = _dagster_materialize_mode()
+        if mode == "skeleton":
+            return False
+        return True
+
+    def _should_run_full_load() -> bool:
+        mode = _dagster_materialize_mode()
+        if mode == "skeleton":
+            return False
+        if mode == "full":
+            return True
+        return bool((os.environ.get("DATABASE_URL") or "").strip())
+
+    def _metadata_entry_value(entry: Any) -> Any:
+        if entry is None:
+            return None
+        return getattr(entry, "value", entry)
+
+    def _read_materialization_metadata(context: Any, asset_key: AssetKey) -> dict[str, Any]:
+        ev = context.instance.get_latest_materialization_event(asset_key)
+        if ev is None:
+            return {}
+        mat = getattr(ev, "asset_materialization", None)
+        if mat is None and hasattr(ev, "event_log_entry"):
+            dagster_event = ev.event_log_entry.dagster_event
+            if dagster_event is not None:
+                mat = dagster_event.asset_materialization
+        if mat is None or not mat.metadata:
+            return {}
+        out: dict[str, Any] = {}
+        for key, entry in mat.metadata.items():
+            out[key] = _metadata_entry_value(entry)
+        return out
+
+    def _dataset_phase_key(spec: TableSkeletonSpec, phase: str) -> tuple[str, str, str, str, str]:
+        return dataset_phase_asset_key_parts(
+            spec.repo_name,
+            spec.schema,
+            spec.dataset_name,
+            phase,
+            spec.table_name,
+        )
+
+    def _load_dep_keys(spec: TableSkeletonSpec) -> tuple[tuple[str, str, str, str, str], ...]:
+        return tuple(table_asset_key_to_load_phase(k) for k in spec.depends_on_table_keys)
+
     def _materialize_result_metadata(
         s: TableSkeletonSpec,
         *,
         kind: str,
+        phase: str | None = None,
         row_count: int | None = None,
         unexpected_new_headers: tuple[str, ...] | None = None,
+        run_date: str | None = None,
+        landing_uri: str | None = None,
     ) -> dict[str, Any]:
         meta: dict[str, Any] = {
             "opendata_kind": MetadataValue.text(kind),
@@ -599,13 +723,19 @@ def dagster_definitions_from_load_result(
             "opendata_dataset": MetadataValue.text(s.dataset_name),
             "opendata_table": MetadataValue.text(s.table_name),
         }
+        if phase is not None:
+            meta["opendata_phase"] = MetadataValue.text(phase)
         if s.asset_kind == "dataset" and unexpected_new_headers is not None:
             meta["unexpected_new_headers"] = MetadataValue.json(list(unexpected_new_headers))
         if row_count is not None:
             meta["row_count"] = MetadataValue.int(row_count)
+        if run_date is not None:
+            meta["opendata_run_date"] = MetadataValue.text(run_date)
+        if landing_uri is not None:
+            meta["opendata_landing_uri"] = MetadataValue.text(landing_uri)
         return meta
 
-    def _make_bundle_compute_fn(group: TableBundleGroup) -> Callable[..., Any]:
+    def _make_derived_bundle_compute_fn(group: TableBundleGroup) -> Callable[..., Any]:
         def _compute_skeleton() -> Any:
             for s in group.specs:
                 yield MaterializeResult(
@@ -617,64 +747,37 @@ def dagster_definitions_from_load_result(
                 )
 
         def _compute_full() -> Any:
-            from pipeline.dataset_materialize import MaterializeError, materialize_dataset_bundle
             from pipeline.derived_load import MaterializeDerivedError, materialize_derived_job_bundle
 
             repo = repo_by_name.get(group.repo_name)
             if repo is None:
                 raise RuntimeError(f"unknown repo {group.repo_name!r}")
             try:
-                if group.asset_kind == "derived":
-                    results = materialize_derived_job_bundle(
-                        repo=repo,
-                        schema=group.schema,
-                        job_name=group.group_name,
-                        work_dir=load_result.work_dir,
-                        deployment=load_result.deployment,
-                        manifest_path=load_result.manifest_path,
-                        provision=True,
-                    )
-                    load_kind = "derived_load"
-                else:
-                    results = materialize_dataset_bundle(
-                        repo=repo,
-                        schema=group.schema,
-                        dataset_name=group.group_name,
-                        source_credentials=load_result.source_credentials,
-                        credential_decls=credential_decls,
-                        manifest_path=load_result.manifest_path,
-                        provision=True,
-                    )
-                    load_kind = "extract_load"
-            except (MaterializeError, MaterializeDerivedError) as e:
+                results = materialize_derived_job_bundle(
+                    repo=repo,
+                    schema=group.schema,
+                    job_name=group.group_name,
+                    work_dir=load_result.work_dir,
+                    deployment=load_result.deployment,
+                    manifest_path=load_result.manifest_path,
+                    provision=True,
+                )
+            except MaterializeDerivedError as e:
                 raise RuntimeError(str(e)) from e
 
             for s in group.specs:
                 result = results[s.table_name]
-                unexpected = (
-                    result.unexpected_new_headers
-                    if group.asset_kind == "dataset"
-                    else None
-                )
                 yield MaterializeResult(
                     asset_key=AssetKey(list(s.asset_key_parts)),
                     metadata=_materialize_result_metadata(
                         s,
-                        kind=load_kind,
+                        kind="derived_load",
                         row_count=result.row_count,
-                        unexpected_new_headers=unexpected,
                     ),
                 )
 
         def _compute() -> Any:
-            mode = _dagster_materialize_mode()
-            if mode == "skeleton":
-                yield from _compute_skeleton()
-                return
-            if mode == "full":
-                yield from _compute_full()
-                return
-            if not (os.environ.get("DATABASE_URL") or "").strip():
+            if not _should_run_full_load():
                 yield from _compute_skeleton()
                 return
             yield from _compute_full()
@@ -687,13 +790,177 @@ def dagster_definitions_from_load_result(
         )
         return _compute
 
-    def _make_freshness_sla_check(s: TableSkeletonSpec) -> Any:
-        sla_hours = float(s.freshness_sla_hours or 0.0)
-        key_list = list(s.asset_key_parts)
+    def _make_dataset_extract_compute_fn(group: TableBundleGroup) -> Callable[..., Any]:
+        def _compute_skeleton() -> Any:
+            for s in group.specs:
+                key = _dataset_phase_key(s, DATASET_PHASE_EXTRACT)
+                yield MaterializeResult(
+                    asset_key=AssetKey(list(key)),
+                    metadata=_materialize_result_metadata(
+                        s,
+                        kind="opendata_etl_skeleton",
+                        phase=DATASET_PHASE_EXTRACT,
+                    ),
+                )
 
-        @asset_check(asset=AssetKey(key_list), name="freshness_sla_hours")
+        def _compute_full() -> Any:
+            from pipeline.dataset_materialize import MaterializeError, extract_and_land_dataset_bundle
+
+            repo = repo_by_name.get(group.repo_name)
+            if repo is None:
+                raise RuntimeError(f"unknown repo {group.repo_name!r}")
+            try:
+                results = extract_and_land_dataset_bundle(
+                    repo=repo,
+                    schema=group.schema,
+                    dataset_name=group.group_name,
+                    source_credentials=load_result.source_credentials,
+                    credential_decls=credential_decls,
+                    work_dir=load_result.work_dir,
+                )
+            except MaterializeError as e:
+                raise RuntimeError(str(e)) from e
+
+            for s in group.specs:
+                result = results[s.table_name]
+                key = _dataset_phase_key(s, DATASET_PHASE_EXTRACT)
+                landing_text = str(result.landing_uri)
+                yield MaterializeResult(
+                    asset_key=AssetKey(list(key)),
+                    metadata=_materialize_result_metadata(
+                        s,
+                        kind="extract_land",
+                        phase=DATASET_PHASE_EXTRACT,
+                        unexpected_new_headers=result.unexpected_new_headers,
+                        run_date=result.run_date,
+                        landing_uri=landing_text,
+                    ),
+                )
+
+        def _compute() -> Any:
+            if not _should_run_full_extract():
+                yield from _compute_skeleton()
+                return
+            yield from _compute_full()
+
+        _compute.__name__ = (
+            python_fn_name_for_bundle(
+                repo_name=group.repo_name,
+                schema=group.schema,
+                group_name=group.group_name,
+                asset_kind=group.asset_kind,
+            )
+            + "__extract"
+        )
+        return _compute
+
+    def _make_dataset_load_compute_fn(group: TableBundleGroup) -> Callable[..., Any]:
+        def _compute_skeleton() -> Any:
+            for s in group.specs:
+                key = _dataset_phase_key(s, DATASET_PHASE_LOAD)
+                yield MaterializeResult(
+                    asset_key=AssetKey(list(key)),
+                    metadata=_materialize_result_metadata(
+                        s,
+                        kind="opendata_etl_skeleton",
+                        phase=DATASET_PHASE_LOAD,
+                    ),
+                )
+
+        def _compute_full(context) -> Any:
+            from pipeline.dataset_materialize import MaterializeError, load_dataset_bundle_from_landing
+
+            repo = repo_by_name.get(group.repo_name)
+            if repo is None:
+                raise RuntimeError(f"unknown repo {group.repo_name!r}")
+
+            table_landing: dict[str, str | Path] = {}
+            run_date: str | None = None
+            unexpected_by_table: dict[str, tuple[str, ...]] = {}
+            for s in group.specs:
+                extract_key = AssetKey(list(_dataset_phase_key(s, DATASET_PHASE_EXTRACT)))
+                meta = _read_materialization_metadata(context, extract_key)
+                if not meta:
+                    raise RuntimeError(
+                        f"load requires prior extract materialization for {extract_key.to_user_string()}"
+                    )
+                rd = meta.get("opendata_run_date")
+                uri = meta.get("opendata_landing_uri")
+                if not isinstance(rd, str) or not rd.strip():
+                    raise RuntimeError(
+                        f"extract metadata for {extract_key.to_user_string()} missing opendata_run_date"
+                    )
+                if not isinstance(uri, str) or not uri.strip():
+                    raise RuntimeError(
+                        f"extract metadata for {extract_key.to_user_string()} missing opendata_landing_uri"
+                    )
+                if run_date is None:
+                    run_date = rd.strip()
+                elif run_date != rd.strip():
+                    raise RuntimeError(
+                        f"{group.group_name}: inconsistent run_date across extract table outputs "
+                        f"({run_date!r} vs {rd.strip()!r})"
+                    )
+                table_landing[s.table_name] = uri
+                raw_unexpected = meta.get("unexpected_new_headers")
+                if isinstance(raw_unexpected, list):
+                    unexpected_by_table[s.table_name] = tuple(str(x) for x in raw_unexpected)
+
+            assert run_date is not None
+            try:
+                results = load_dataset_bundle_from_landing(
+                    repo=repo,
+                    schema=group.schema,
+                    dataset_name=group.group_name,
+                    table_landing=table_landing,
+                    run_date=run_date,
+                    unexpected_new_by_table=unexpected_by_table,
+                    manifest_path=load_result.manifest_path,
+                    work_dir=load_result.work_dir,
+                    provision=True,
+                )
+            except MaterializeError as e:
+                raise RuntimeError(str(e)) from e
+
+            for s in group.specs:
+                result = results[s.table_name]
+                key = _dataset_phase_key(s, DATASET_PHASE_LOAD)
+                yield MaterializeResult(
+                    asset_key=AssetKey(list(key)),
+                    metadata=_materialize_result_metadata(
+                        s,
+                        kind="load_swap",
+                        phase=DATASET_PHASE_LOAD,
+                        row_count=result.row_count,
+                        unexpected_new_headers=result.unexpected_new_headers,
+                        run_date=run_date,
+                    ),
+                )
+
+        def _compute(context) -> Any:
+            if not _should_run_full_load():
+                yield from _compute_skeleton()
+                return
+            yield from _compute_full(context)
+
+        _compute.__name__ = (
+            python_fn_name_for_bundle(
+                repo_name=group.repo_name,
+                schema=group.schema,
+                group_name=group.group_name,
+                asset_kind=group.asset_kind,
+            )
+            + "__load"
+        )
+        return _compute
+
+    def _make_freshness_sla_check(s: TableSkeletonSpec, asset_key: AssetKey) -> Any:
+        sla_hours = float(s.freshness_sla_hours or 0.0)
+        key_list = list(asset_key.parts)
+
+        @asset_check(asset=asset_key, name="freshness_sla_hours")
         def _freshness_sla_check(context):
-            ev = context.instance.get_latest_materialization_event(AssetKey(key_list))
+            ev = context.instance.get_latest_materialization_event(asset_key)
             if ev is None:
                 ts = None
             else:
@@ -709,12 +976,12 @@ def dagster_definitions_from_load_result(
         _freshness_sla_check.__name__ = f"opendata_sla_check__{python_fn_name_for_table_asset(s)}"
         return _freshness_sla_check
 
-    def _make_unexpected_new_check(s: TableSkeletonSpec) -> Any:
+    def _make_unexpected_new_check(s: TableSkeletonSpec, asset_key: AssetKey) -> Any:
         dataset_label = f"{s.repo_name}/{s.dataset_yaml_relpath or s.dataset_name}"
 
-        @asset_check(asset=AssetKey(list(s.asset_key_parts)), name="unexpected_new_source_headers")
+        @asset_check(asset=asset_key, name="unexpected_new_source_headers")
         def _unexpected_new_check(context):
-            ev = context.instance.get_latest_materialization_event(AssetKey(list(s.asset_key_parts)))
+            ev = context.instance.get_latest_materialization_event(asset_key)
             unexpected: list[str] | None = None
             if ev is not None:
                 mat = getattr(ev, "asset_materialization", None)
@@ -725,7 +992,7 @@ def dagster_definitions_from_load_result(
                 if mat is not None and mat.metadata:
                     entry = mat.metadata.get("unexpected_new_headers")
                     if entry is not None:
-                        val = getattr(entry, "value", entry)
+                        val = _metadata_entry_value(entry)
                         if isinstance(val, list):
                             unexpected = [str(x) for x in val]
             return monitoring.unexpected_new_headers_asset_check_result(
@@ -738,25 +1005,121 @@ def dagster_definitions_from_load_result(
         _unexpected_new_check.__name__ = f"opendata_new_cols_check__{python_fn_name_for_table_asset(s)}"
         return _unexpected_new_check
 
+    def _make_extract_landing_check(s: TableSkeletonSpec, load_key: AssetKey) -> Any:
+        extract_key = AssetKey(list(_dataset_phase_key(s, DATASET_PHASE_EXTRACT)))
+
+        @asset_check(asset=load_key, name="extract_landing_exists")
+        def _extract_landing_check(context):
+            meta = _read_materialization_metadata(context, extract_key)
+            if not meta:
+                return AssetCheckResult(
+                    passed=False,
+                    severity=AssetCheckSeverity.WARN,
+                    description=(
+                        f"No extract materialization for {extract_key.to_user_string()}; "
+                        "load cannot run until daytime extract succeeds."
+                    ),
+                )
+            run_date = meta.get("opendata_run_date")
+            landing_uri = meta.get("opendata_landing_uri")
+            if not isinstance(run_date, str) or not run_date.strip():
+                return AssetCheckResult(
+                    passed=False,
+                    severity=AssetCheckSeverity.WARN,
+                    description="Extract metadata missing opendata_run_date.",
+                )
+            if not isinstance(landing_uri, str) or not landing_uri.strip():
+                return AssetCheckResult(
+                    passed=False,
+                    severity=AssetCheckSeverity.WARN,
+                    description="Extract metadata missing opendata_landing_uri.",
+                )
+            from pipeline.landing import landing_object_exists
+
+            if landing_object_exists(key_or_path=landing_uri.strip()):
+                return AssetCheckResult(
+                    passed=True,
+                    description=f"Landing object exists for run_date={run_date.strip()!r}.",
+                )
+            return AssetCheckResult(
+                passed=False,
+                severity=AssetCheckSeverity.WARN,
+                description=(
+                    f"Landing object missing for {s.dataset_name}/{s.table_name} "
+                    f"run_date={run_date.strip()!r} ({landing_uri.strip()!r})."
+                ),
+            )
+
+        _extract_landing_check.__name__ = f"opendata_landing_check__{python_fn_name_for_table_asset(s)}"
+        return _extract_landing_check
+
     for group in bundle_groups:
-        asset_specs: list[AssetSpec] = []
+        if group.asset_kind == "derived":
+            asset_specs: list[AssetSpec] = []
+            for spec in group.specs:
+                fp = (
+                    monitoring.freshness_policy_for_sla_hours(spec.freshness_sla_hours)
+                    if spec.freshness_sla_hours is not None
+                    else None
+                )
+                load_deps = _load_dep_keys(spec)
+                asset_specs.append(
+                    AssetSpec(
+                        key=AssetKey(list(spec.asset_key_parts)),
+                        deps=[AssetKey(list(k)) for k in load_deps],
+                        group_name=spec.schema,
+                        skippable=True,
+                        freshness_policy=fp,
+                        description=(
+                            f"Derived table ({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
+                            "one overnight bundle run (docker + load) after upstream dataset loads."
+                        ),
+                        metadata={
+                            "opendata_repo": spec.repo_name,
+                            "opendata_schema": spec.schema,
+                            "opendata_dataset": spec.dataset_name,
+                            "opendata_table": spec.table_name,
+                            "opendata_asset_kind": spec.asset_kind,
+                            **(
+                                {"freshness_sla_hours": float(spec.freshness_sla_hours)}
+                                if spec.freshness_sla_hours is not None
+                                else {}
+                            ),
+                        },
+                    )
+                )
+
+            decorated = multi_asset(specs=asset_specs, can_subset=True)(
+                _make_derived_bundle_compute_fn(group)
+            )
+            assets.append(decorated)
+            bundle_def_by_key[group.bundle_key] = decorated
+            for spec in group.specs:
+                ak = AssetKey(list(spec.asset_key_parts))
+                if spec.freshness_sla_hours is not None:
+                    asset_checks.append(_make_freshness_sla_check(spec, ak))
+                asset_checks.append(_make_unexpected_new_check(spec, ak))
+            continue
+
+        extract_specs: list[AssetSpec] = []
+        load_specs: list[AssetSpec] = []
         for spec in group.specs:
             fp = (
                 monitoring.freshness_policy_for_sla_hours(spec.freshness_sla_hours)
                 if spec.freshness_sla_hours is not None
                 else None
             )
-            asset_specs.append(
+            extract_key = _dataset_phase_key(spec, DATASET_PHASE_EXTRACT)
+            load_key = _dataset_phase_key(spec, DATASET_PHASE_LOAD)
+            extract_specs.append(
                 AssetSpec(
-                    key=AssetKey(list(spec.asset_key_parts)),
-                    deps=[AssetKey(list(k)) for k in spec.depends_on_table_keys],
+                    key=AssetKey(list(extract_key)),
+                    deps=[],
                     group_name=spec.schema,
                     skippable=True,
-                    freshness_policy=fp,
                     description=(
-                        f"{'Derived' if spec.asset_kind == 'derived' else 'Dataset'} table "
-                        f"({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
-                        "bundle materialization runs one extract or derived job for all sibling tables."
+                        f"Dataset extract ({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
+                        "download + land (daytime schedule on standard profile)."
                     ),
                     metadata={
                         "opendata_repo": spec.repo_name,
@@ -764,6 +1127,32 @@ def dagster_definitions_from_load_result(
                         "opendata_dataset": spec.dataset_name,
                         "opendata_table": spec.table_name,
                         "opendata_asset_kind": spec.asset_kind,
+                        "opendata_phase": DATASET_PHASE_EXTRACT,
+                    },
+                )
+            )
+            load_dep_keys = [
+                extract_key,
+                *_load_dep_keys(spec),
+            ]
+            load_specs.append(
+                AssetSpec(
+                    key=AssetKey(list(load_key)),
+                    deps=[AssetKey(list(k)) for k in load_dep_keys],
+                    group_name=spec.schema,
+                    skippable=True,
+                    freshness_policy=fp,
+                    description=(
+                        f"Dataset load ({spec.repo_name}/{spec.dataset_name}/{spec.table_name}); "
+                        "s3_copy_rds or local COPY + atomic swap (overnight schedule on standard profile)."
+                    ),
+                    metadata={
+                        "opendata_repo": spec.repo_name,
+                        "opendata_schema": spec.schema,
+                        "opendata_dataset": spec.dataset_name,
+                        "opendata_table": spec.table_name,
+                        "opendata_asset_kind": spec.asset_kind,
+                        "opendata_phase": DATASET_PHASE_LOAD,
                         **(
                             {"freshness_sla_hours": float(spec.freshness_sla_hours)}
                             if spec.freshness_sla_hours is not None
@@ -773,56 +1162,84 @@ def dagster_definitions_from_load_result(
                 )
             )
 
-        decorated = multi_asset(specs=asset_specs, can_subset=True)(
-            _make_bundle_compute_fn(group)
+        extract_def = multi_asset(specs=extract_specs, can_subset=True)(
+            _make_dataset_extract_compute_fn(group)
         )
-        assets.append(decorated)
-        bundle_def_by_key[group.bundle_key] = decorated
+        load_def = multi_asset(specs=load_specs, can_subset=True)(
+            _make_dataset_load_compute_fn(group)
+        )
+        assets.extend([extract_def, load_def])
+        bundle_def_by_key[group.bundle_key] = extract_def
+        dataset_load_def_by_key[group.bundle_key] = load_def
         for spec in group.specs:
+            extract_ak = AssetKey(list(_dataset_phase_key(spec, DATASET_PHASE_EXTRACT)))
+            load_ak = AssetKey(list(_dataset_phase_key(spec, DATASET_PHASE_LOAD)))
+            asset_checks.append(_make_unexpected_new_check(spec, extract_ak))
+            asset_checks.append(_make_extract_landing_check(spec, load_ak))
             if spec.freshness_sla_hours is not None:
-                asset_checks.append(_make_freshness_sla_check(spec))
-            asset_checks.append(_make_unexpected_new_check(spec))
+                asset_checks.append(_make_freshness_sla_check(spec, load_ak))
 
     from pipeline.opendata_dbt import collect_dbt_assets_and_resources
 
     dbt_assets_list, dbt_resources = collect_dbt_assets_and_resources(load_result.repos, repo_root=root)
     assets.extend(dbt_assets_list)
 
-    # One schedule per YAML group that declares ``schedule:`` (UTC cron). STOPPED by default.
-    dataset_jobs: dict[tuple[str, str, str], tuple[str, Any]] = {}
+    # Split extract (daytime) and load (overnight) schedules for datasets with YAML ``schedule:``.
+    extract_jobs: dict[tuple[str, str, str], tuple[str, Any]] = {}
+    load_jobs: dict[tuple[str, str, str], tuple[str, Any]] = {}
     for group in bundle_groups:
-        cron = group.specs[0].schedule_cron
-        if cron is None:
+        if group.asset_kind != "dataset":
+            continue
+        yaml_cron = group.specs[0].schedule_cron
+        if yaml_cron is None:
             continue
         gkey = (group.repo_name, group.schema, group.group_name)
-        bundle_def = bundle_def_by_key[group.bundle_key]
-        if gkey in dataset_jobs:
-            prev_cron, _ = dataset_jobs[gkey]
-            if prev_cron != cron:
-                raise ValueError(
-                    f"{group.repo_name}: {group.group_name!r}: inconsistent schedule cron across tables"
-                )
-            continue
-        dataset_jobs[gkey] = (cron, bundle_def)
+        extract_def = bundle_def_by_key[group.bundle_key]
+        load_def = dataset_load_def_by_key[group.bundle_key]
+        extract_cron = extract_schedule_cron_from_yaml(yaml_cron, profile=deploy_profile)
+        load_cron = load_schedule_cron_from_yaml(yaml_cron, profile=deploy_profile)
+        extract_jobs[gkey] = (extract_cron, extract_def)
+        load_jobs[gkey] = (load_cron, load_def)
 
     schedules: list[Any] = []
-    for (repo_name, schema, dataset_name), (cron, bundle_def) in sorted(dataset_jobs.items()):
+    for (repo_name, schema, dataset_name), (cron, phase_def) in sorted(extract_jobs.items()):
         job_name = (
-            "opendata_ds__"
+            "opendata_ds_extract__"
             f"{_sanitize_python_identifier(repo_name)}__{_sanitize_python_identifier(schema)}__"
             f"{_sanitize_python_identifier(dataset_name)}"
         )
-        job = define_asset_job(job_name, selection=AssetSelection.assets(bundle_def))
+        job = define_asset_job(job_name, selection=AssetSelection.assets(phase_def))
         schedules.append(
             ScheduleDefinition(
                 name=f"{job_name}__schedule",
                 job=job,
                 cron_schedule=cron,
-                execution_timezone="UTC",
+                execution_timezone=schedule_tz,
                 default_status=DefaultScheduleStatus.STOPPED,
                 description=(
-                    f"Dataset schedule from YAML ({repo_name}/{dataset_name}, {cron} UTC). "
-                    "Enable in Dagster UI for automatic runs."
+                    f"Dataset extract schedule ({repo_name}/{dataset_name}, {cron} {schedule_tz}). "
+                    "Daytime window outside 22:00–07:00 America/New_York on standard profile."
+                ),
+            )
+        )
+    for (repo_name, schema, dataset_name), (cron, phase_def) in sorted(load_jobs.items()):
+        job_name = (
+            "opendata_ds_load__"
+            f"{_sanitize_python_identifier(repo_name)}__{_sanitize_python_identifier(schema)}__"
+            f"{_sanitize_python_identifier(dataset_name)}"
+        )
+        job = define_asset_job(job_name, selection=AssetSelection.assets(phase_def))
+        schedules.append(
+            ScheduleDefinition(
+                name=f"{job_name}__schedule",
+                job=job,
+                cron_schedule=cron,
+                execution_timezone=schedule_tz,
+                default_status=DefaultScheduleStatus.STOPPED,
+                description=(
+                    f"Dataset load schedule ({repo_name}/{dataset_name}, {cron} {schedule_tz}). "
+                    "Overnight window 22:00–07:00 America/New_York on standard profile "
+                    "(02:00 local ≈ 07:00 UTC in EST, 06:00 UTC in EDT)."
                 ),
             )
         )

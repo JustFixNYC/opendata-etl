@@ -50,19 +50,93 @@ def test_building_rollups_multi_asset_invokes_bundle_once(monkeypatch: pytest.Mo
     assert result.success
     assert bundle_calls == ["building_rollups"]
 
+    from pipeline.factory import DATASET_PHASE_LOAD, dataset_phase_asset_key_parts
+
+    ak_buildings_load = AssetKey(
+        list(
+            dataset_phase_asset_key_parts(
+                "example_collection",
+                "ex_housing",
+                "bundle_demo",
+                DATASET_PHASE_LOAD,
+                "buildings",
+            )
+        )
+    )
+    deps = rd.assets_defs_by_key[ak_stats].dependency_keys
+    assert ak_buildings_load in deps
+
 
 def test_bundle_demo_schedule_and_shared_bundle_def() -> None:
     pytest.importorskip("dagster")
     from dagster import AssetKey
 
+    from pipeline.factory import (
+        DATASET_PHASE_EXTRACT,
+        DATASET_PHASE_LOAD,
+        dagster_definitions_from_load_result,
+        dataset_phase_asset_key_parts,
+        embedded_example_load_result,
+    )
+
     root = Path(__file__).resolve().parents[1]
     defs = dagster_definitions_from_load_result(embedded_example_load_result(root))
     rd = defs.get_repository_def()
-    ak_buildings = AssetKey(["example_collection", "ex_housing", "bundle_demo", "buildings"])
-    ak_units = AssetKey(["example_collection", "ex_housing", "bundle_demo", "units"])
-    bundle_def = rd.assets_defs_by_key[ak_buildings]
-    assert rd.assets_defs_by_key[ak_units] is bundle_def
+    ak_buildings_extract = AssetKey(
+        list(
+            dataset_phase_asset_key_parts(
+                "example_collection",
+                "ex_housing",
+                "bundle_demo",
+                DATASET_PHASE_EXTRACT,
+                "buildings",
+            )
+        )
+    )
+    ak_units_extract = AssetKey(
+        list(
+            dataset_phase_asset_key_parts(
+                "example_collection",
+                "ex_housing",
+                "bundle_demo",
+                DATASET_PHASE_EXTRACT,
+                "units",
+            )
+        )
+    )
+    extract_def = rd.assets_defs_by_key[ak_buildings_extract]
+    assert rd.assets_defs_by_key[ak_units_extract] is extract_def
 
-    schedule = next(s for s in rd.schedule_defs if "bundle_demo" in s.name)
-    assert schedule.cron_schedule == "0 6 * * 1"
-    assert schedule.job is not None
+    ak_buildings_load = AssetKey(
+        list(
+            dataset_phase_asset_key_parts(
+                "example_collection",
+                "ex_housing",
+                "bundle_demo",
+                DATASET_PHASE_LOAD,
+                "buildings",
+            )
+        )
+    )
+    ak_units_load = AssetKey(
+        list(
+            dataset_phase_asset_key_parts(
+                "example_collection",
+                "ex_housing",
+                "bundle_demo",
+                DATASET_PHASE_LOAD,
+                "units",
+            )
+        )
+    )
+    load_def = rd.assets_defs_by_key[ak_buildings_load]
+    assert rd.assets_defs_by_key[ak_units_load] is load_def
+
+    extract_schedule = next(
+        s for s in rd.schedule_defs if "bundle_demo" in s.name and "extract" in s.name
+    )
+    load_schedule = next(s for s in rd.schedule_defs if "bundle_demo" in s.name and "load" in s.name)
+    assert extract_schedule.cron_schedule == "0 6 * * 1"
+    assert load_schedule.cron_schedule == "0 7 * * 1"
+    assert extract_schedule.job is not None
+    assert load_schedule.job is not None

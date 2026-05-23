@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Materialize one dataset table asset: extract all tables, load atomically, return per-table metadata."""
+"""Materialize dataset table assets: split extract (land) and load (COPY+swap) phases."""
 
 from __future__ import annotations
 
@@ -14,10 +14,12 @@ from pipeline.extract.orchestrate import ExtractOrchestrationError, extract_data
 from pipeline.landing import (
     LandingError,
     default_landing_prefix,
+    extract_landing_key,
     land_extract_csv,
     landing_backend,
     load_backend,
     resolve_table_csv_paths_for_load,
+    verify_extract_landing_objects,
 )
 from pipeline.repo_yaml import parse_repo_datasets
 from pipeline.load.dispatch import load_dataset_tables
@@ -27,11 +29,21 @@ from pipeline.provisioning import load_deployment_manifest, run_provisioning
 
 @dataclass(frozen=True)
 class MaterializeTableResult:
-    """Outcome of a single table asset materialization."""
+    """Outcome of a single table load materialization."""
 
     table_name: str
     row_count: int | None
     unexpected_new_headers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ExtractTableResult:
+    """Outcome of extract + land for one table (no Postgres load)."""
+
+    table_name: str
+    unexpected_new_headers: tuple[str, ...]
+    landing_uri: str | Path
+    run_date: str
 
 
 class MaterializeError(RuntimeError):
@@ -59,26 +71,10 @@ def _dataset_doc_for_spec(
     return doc
 
 
-def materialize_dataset_bundle(
-    *,
-    repo: LoadedDefinitionRepo,
-    schema: str,
-    dataset_name: str,
-    source_credentials: Mapping[str, Any],
-    credential_decls: Mapping[str, Any],
-    manifest_path: Path | None = None,
-    work_dir: Path | None = None,
-    environ: Mapping[str, str] | None = None,
-    provision: bool = True,
-) -> dict[str, MaterializeTableResult]:
-    """Extract every table in the dataset once, COPY+swap atomically, return per-table metadata."""
-    envmap = environ if environ is not None else os.environ
-    dsn = _database_url(envmap)
-    doc = _dataset_doc_for_spec(repo, dataset_name)
+def _table_names_from_doc(doc: dict[str, Any], dataset_name: str) -> list[str]:
     tables = doc.get("tables")
     if not isinstance(tables, list):
         raise MaterializeError(f"{dataset_name}: tables must be a list")
-
     table_names = [
         str(t["name"])
         for t in tables
@@ -86,6 +82,24 @@ def materialize_dataset_bundle(
     ]
     if not table_names:
         raise MaterializeError(f"{dataset_name}: no tables declared")
+    return table_names
+
+
+def extract_and_land_dataset_bundle(
+    *,
+    repo: LoadedDefinitionRepo,
+    schema: str,
+    dataset_name: str,
+    source_credentials: Mapping[str, Any],
+    credential_decls: Mapping[str, Any],
+    work_dir: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+    run_date: str | None = None,
+) -> dict[str, ExtractTableResult]:
+    """Download sources, project CSVs, and land artifacts (S3 or local paths). No Postgres load."""
+    envmap = environ if environ is not None else os.environ
+    doc = _dataset_doc_for_spec(repo, dataset_name)
+    table_names = _table_names_from_doc(doc, dataset_name)
 
     label = f"{repo.name}/{dataset_name}"
     extract_root = work_dir if work_dir is not None else temp_work_dir()
@@ -102,8 +116,8 @@ def materialize_dataset_bundle(
     except ExtractOrchestrationError as e:
         raise MaterializeError(str(e)) from e
 
-    run_date = default_landing_prefix()
-    table_csv_paths: dict[str, str | Path] = {}
+    landing_day = run_date if run_date is not None else default_landing_prefix()
+    table_landing: dict[str, str | Path] = {}
     if landing_backend(envmap) == "s3":
         try:
             for tn, result in staging.items():
@@ -111,14 +125,73 @@ def materialize_dataset_bundle(
                     result.staging_csv_path,
                     dataset_name=dataset_name,
                     table_name=tn,
-                    run_date=run_date,
+                    run_date=landing_day,
                     environ=envmap,
                 )
-                table_csv_paths[tn] = uri
+                table_landing[tn] = uri
         except LandingError as e:
             raise MaterializeError(str(e)) from e
     else:
-        table_csv_paths = {tn: staging[tn].staging_csv_path for tn in staging}
+        table_landing = {tn: staging[tn].staging_csv_path for tn in staging}
+
+    try:
+        verify_extract_landing_objects(
+            dataset_name=dataset_name,
+            table_landing=table_landing,
+            run_date=landing_day,
+            environ=envmap,
+        )
+    except LandingError as e:
+        raise MaterializeError(str(e)) from e
+
+    out = {
+        tn: ExtractTableResult(
+            table_name=tn,
+            unexpected_new_headers=staging[tn].unexpected_new_headers,
+            landing_uri=table_landing[tn],
+            run_date=landing_day,
+        )
+        for tn in table_names
+    }
+    if owned_tmp and extract_root.exists() and landing_backend(envmap) == "s3":
+        shutil.rmtree(extract_root, ignore_errors=True)
+    return out
+
+
+def load_dataset_bundle_from_landing(
+    *,
+    repo: LoadedDefinitionRepo,
+    schema: str,
+    dataset_name: str,
+    table_landing: Mapping[str, str | Path],
+    run_date: str,
+    unexpected_new_by_table: Mapping[str, tuple[str, ...]] | None = None,
+    manifest_path: Path | None = None,
+    work_dir: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+    provision: bool = True,
+) -> dict[str, MaterializeTableResult]:
+    """Load a dataset from prior extract landing artifacts (``s3_copy_rds`` or local COPY)."""
+    envmap = environ if environ is not None else os.environ
+    dsn = _database_url(envmap)
+    doc = _dataset_doc_for_spec(repo, dataset_name)
+    table_names = _table_names_from_doc(doc, dataset_name)
+
+    missing = [tn for tn in table_names if tn not in table_landing]
+    if missing:
+        raise MaterializeError(
+            f"{dataset_name}: load missing landing paths for table(s): {', '.join(missing)}"
+        )
+
+    try:
+        verify_extract_landing_objects(
+            dataset_name=dataset_name,
+            table_landing=dict(table_landing),
+            run_date=run_date,
+            environ=envmap,
+        )
+    except LandingError as e:
+        raise MaterializeError(str(e)) from e
 
     if provision and manifest_path is not None and manifest_path.is_file():
         deployment = load_deployment_manifest(manifest_path)
@@ -126,13 +199,15 @@ def materialize_dataset_bundle(
         run_provisioning(deployment, dsn, table_owner_role=owner)
 
     load_root = (
-        extract_root / "load"
-        if landing_backend(envmap) == "s3" and load_backend(envmap) == "copy_local"
+        work_dir / "load"
+        if work_dir is not None
+        and landing_backend(envmap) == "s3"
+        and load_backend(envmap) == "copy_local"
         else None
     )
     try:
         resolved_paths = resolve_table_csv_paths_for_load(
-            table_csv_paths,
+            dict(table_landing),
             work_dir=load_root,
             environ=envmap,
         )
@@ -146,6 +221,7 @@ def materialize_dataset_bundle(
 
     owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
     row_counts: dict[str, int | None] = {tn: None for tn in table_names}
+    unexpected_map = dict(unexpected_new_by_table or {})
     try:
         with psycopg.connect(dsn, autocommit=False) as conn:
             with conn.cursor() as cur:
@@ -169,18 +245,55 @@ def materialize_dataset_bundle(
         raise MaterializeError(str(e)) from e
     except psycopg.Error as e:
         raise MaterializeError(str(e)) from e
-    finally:
-        if owned_tmp and extract_root.exists():
-            shutil.rmtree(extract_root, ignore_errors=True)
 
     return {
         tn: MaterializeTableResult(
             table_name=tn,
             row_count=row_counts[tn],
-            unexpected_new_headers=staging[tn].unexpected_new_headers,
+            unexpected_new_headers=unexpected_map.get(tn, ()),
         )
         for tn in table_names
     }
+
+
+def materialize_dataset_bundle(
+    *,
+    repo: LoadedDefinitionRepo,
+    schema: str,
+    dataset_name: str,
+    source_credentials: Mapping[str, Any],
+    credential_decls: Mapping[str, Any],
+    manifest_path: Path | None = None,
+    work_dir: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+    provision: bool = True,
+) -> dict[str, MaterializeTableResult]:
+    """Extract, land, and load in one call (legacy / lite convenience)."""
+    envmap = environ if environ is not None else os.environ
+    extract_results = extract_and_land_dataset_bundle(
+        repo=repo,
+        schema=schema,
+        dataset_name=dataset_name,
+        source_credentials=source_credentials,
+        credential_decls=credential_decls,
+        work_dir=work_dir,
+        environ=envmap,
+    )
+    if not extract_results:
+        raise MaterializeError(f"{dataset_name}: extract produced no tables")
+    run_date = next(iter(extract_results.values())).run_date
+    return load_dataset_bundle_from_landing(
+        repo=repo,
+        schema=schema,
+        dataset_name=dataset_name,
+        table_landing={tn: r.landing_uri for tn, r in extract_results.items()},
+        run_date=run_date,
+        unexpected_new_by_table={tn: r.unexpected_new_headers for tn, r in extract_results.items()},
+        manifest_path=manifest_path,
+        work_dir=work_dir,
+        environ=envmap,
+        provision=provision,
+    )
 
 
 def materialize_dataset_table(
@@ -211,3 +324,17 @@ def materialize_dataset_table(
     if table_name not in bundle:
         raise MaterializeError(f"{dataset_name}: no table named {table_name!r}")
     return bundle[table_name]
+
+
+def expected_extract_landing_key(
+    *,
+    dataset_name: str,
+    table_name: str,
+    run_date: str,
+) -> str:
+    """Canonical S3 key for an extract landing object (for checks and metadata)."""
+    return extract_landing_key(
+        dataset_name=dataset_name,
+        table_name=table_name,
+        run_date=run_date,
+    )

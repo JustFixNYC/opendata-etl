@@ -56,7 +56,7 @@ def test_dagster_definitions_include_schedules_and_checks() -> None:
     root = Path(__file__).resolve().parents[1]
     defs = dagster_definitions_from_load_result(embedded_example_load_result(root))
     rd = defs.get_repository_def()
-    assert len(rd.schedule_defs) >= 2
+    assert len(rd.schedule_defs) >= 4
     assert len(rd.asset_checks_defs_by_key) >= 3
 
 
@@ -71,13 +71,30 @@ def test_materialize_surfaces_sla_check_warning(monkeypatch: pytest.MonkeyPatch)
     # CI sets DATABASE_URL (Postgres service); avoid full extract against example.invalid URLs.
     monkeypatch.setenv("OPENDATA_DAGSTER_MATERIALIZE", "skeleton")
 
+    from pipeline.factory import (
+        DATASET_PHASE_LOAD,
+        dagster_definitions_from_load_result,
+        dataset_phase_asset_key_parts,
+        embedded_example_load_result,
+    )
+
     root = Path(__file__).resolve().parents[1]
     defs = dagster_definitions_from_load_result(embedded_example_load_result(root))
     rd = defs.get_repository_def()
 
     from dagster import AssetKey
 
-    ak = AssetKey(["example_collection", "ex_housing", "sample_csv", "rows"])
+    ak = AssetKey(
+        list(
+            dataset_phase_asset_key_parts(
+                "example_collection",
+                "ex_housing",
+                "bundle_demo",
+                DATASET_PHASE_LOAD,
+                "buildings",
+            )
+        )
+    )
     table_asset = rd.assets_defs_by_key[ak]
     from dagster import AssetCheckKey
 
@@ -90,7 +107,7 @@ def test_materialize_surfaces_sla_check_warning(monkeypatch: pytest.MonkeyPatch)
             assert r1.success
             assert r1.get_asset_check_evaluations()[0].passed is True
 
-            far = datetime.now(timezone.utc) + timedelta(hours=100)
+            far = datetime.now(timezone.utc) + timedelta(hours=200)
             monitoring.set_utc_now_provider_for_tests(lambda: far)
             r2 = materialize(
                 [table_asset, check_def],

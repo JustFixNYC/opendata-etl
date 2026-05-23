@@ -315,3 +315,52 @@ def resolve_table_csv_paths_for_load(
         tn: resolve_csv_path_for_load(uri, work_dir=work_dir, environ=environ)
         for tn, uri in table_paths.items()
     }
+
+
+def landing_object_exists(
+    *,
+    key_or_path: str | Path,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    """Return whether an S3 landing key or local CSV path exists."""
+    if isinstance(key_or_path, Path):
+        return key_or_path.is_file()
+    text = str(key_or_path)
+    if text.startswith("s3://"):
+        envmap = environ if environ is not None else os.environ
+        try:
+            client, bucket = landing_client(envmap)
+            _, key = parse_s3_uri(text)
+            client.head_object(Bucket=bucket, Key=key)
+            return True
+        except Exception:
+            return False
+    return Path(text).is_file()
+
+
+def verify_extract_landing_objects(
+    *,
+    dataset_name: str,
+    table_landing: Mapping[str, str | Path],
+    run_date: str,
+    environ: Mapping[str, str] | None = None,
+) -> None:
+    """Fail when any expected extract landing object is missing."""
+    missing: list[str] = []
+    for table_name, uri in table_landing.items():
+        if landing_object_exists(key_or_path=uri, environ=environ):
+            continue
+        if landing_backend(environ) == "s3":
+            key = extract_landing_key(
+                dataset_name=dataset_name,
+                table_name=table_name,
+                run_date=run_date,
+            )
+            missing.append(f"s3://…/{key}")
+        else:
+            missing.append(f"{table_name}={uri!r}")
+    if missing:
+        raise LandingError(
+            f"{dataset_name}: extract landing missing for run_date={run_date!r}: "
+            + ", ".join(missing)
+        )
