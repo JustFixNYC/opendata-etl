@@ -148,7 +148,7 @@ resource "aws_ssm_parameter" "standard_env" {
   value = join("\n", [
     "OPENDATA_LANDING_BACKEND=s3",
     "OPENDATA_LOAD_BACKEND=s3_copy_rds",
-    "OPENDATA_DERIVED_EXECUTOR=docker",
+    "OPENDATA_DERIVED_RUNNER=docker",
     "OPENDATA_EXTRACT_EXECUTOR=local",
     "OPENDATA_PG_OWNER_ROLE=${var.postgres_table_owner_role}",
     "S3_BUCKET=${var.landing_bucket_id}",

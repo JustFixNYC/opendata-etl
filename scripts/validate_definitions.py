@@ -34,6 +34,7 @@ def validate_examples_default() -> None:
     validate_definition_repo(REPO_ROOT / "examples" / "definition-repo")
     validate_deployment(REPO_ROOT / "examples" / "definitions.local.yml")
     validate_deployment(REPO_ROOT / "examples" / "definitions.prod.yml")
+    validate_deployment(REPO_ROOT / "examples" / "definitions.poc.yml")
 
 
 def check_credentials(decl_path: Path, repo_dir: Path) -> None:
@@ -47,7 +48,7 @@ def main() -> None:
     parser.add_argument(
         "--examples-default",
         action="store_true",
-        help="Validate examples/definition-repo and examples/definitions.{local,prod}.yml",
+        help="Validate examples/definition-repo and examples/definitions.{local,prod,poc}.yml",
     )
     parser.add_argument("--repo", type=Path, help="Path to a definition repository root (contains repo.yml)")
     parser.add_argument("--deployment", type=Path, help="Path to a definitions.yml deployment manifest")

@@ -51,7 +51,8 @@ terraform plan -out=tfplan
 2. Bootstrap RDS extensions: [`docs/deployment/aws-s3-copy-bootstrap.md`](../../docs/deployment/aws-s3-copy-bootstrap.md).
 3. Database access (Postico / psql): [`docs/deployment/aws-database-access.md`](../../docs/deployment/aws-database-access.md).
 4. Operator checklist: `/Users/maxwell/repos/_planning/extra-plans/opendata-etl-step-19b-aws-readiness-for-step-20.plan.md`
-5. Step **20** adds `s3_copy_rds` in application code; Step **22** adds API EC2 and `definitions.poc.yml`.
+5. Application: `OPENDATA_LOAD_BACKEND=s3_copy_rds` (Step 20); POC manifest [`examples/definitions.poc.yml`](../../examples/definitions.poc.yml) and split API EC2 (`create_api_instance = true` in `terraform.tfvars.example`).
+6. Deploy guide: [`docs/deployment/aws-first-deploy.md`](../../docs/deployment/aws-first-deploy.md).
 
 ## Secrets
 

@@ -1,0 +1,30 @@
+api_version: opendata-etl.definitions/v1
+profile: standard
+notes: |
+  Parallel POC manifest for profile: standard (RDS PostgreSQL + S3 + split EC2).
+  Subset of nycdb2 for Step 23 validation (small fixture + Tier B public sources).
+  Runtime defaults (also in SSM .../runtime/standard_env after terraform apply):
+    OPENDATA_LANDING_BACKEND=s3
+    OPENDATA_LOAD_BACKEND=s3_copy_rds
+    OPENDATA_DERIVED_RUNNER=docker
+    OPENDATA_EXTRACT_EXECUTOR=local
+    OPENDATA_DAGSTER_MATERIALIZE=full
+  See docs/deployment/aws-first-deploy.md.
+source_credentials:
+  justfix_data_public:
+    kind: none
+    description: Unsigned reads for public JustFix S3 objects (rentstab_v2).
+  opendata_etl_testing:
+    kind: aws_iam
+    description: Orchestrator EC2 instance profile for protected S3 (enable datasets locally as needed).
+definitions:
+  - name: nycdb2
+    url: "https://github.com/JustFixNYC/nycdb2.git"
+    ref: main
+    schema: nyc_housing
+    protected: false
+    depends_on: []
+    enabled_datasets:
+      - fixture_hello
+      - rentstab_v2
+      - nycc

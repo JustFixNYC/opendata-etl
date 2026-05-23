@@ -20,7 +20,7 @@ landing_lifecycle_expire_days = 90
 landing_bucket_force_destroy  = true # ephemeral POC only; false in long-lived envs
 
 create_orchestrator_instance = true
-create_api_instance          = false # Step 22 enables API EC2 for full standard POC
+create_api_instance          = true # split FastAPI host (standard profile POC)
 
 # --- Production-sized example (uncomment and adjust) ---
 # environment               = "prod"
