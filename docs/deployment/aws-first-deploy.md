@@ -488,7 +488,7 @@ sudo chmod 644 /etc/opendata-etl/definitions.yml
 On the **API instance**, set `DB_HOST` from your laptop: `terraform -chdir=infra/aws output -raw database_endpoint`. Use the read passwords from **7.2**.
 
 ```bash
-DB_HOST="opendata-etl-poc-postgres.clswhoz2jjq7.us-east-1.rds.amazonaws.com"
+DB_HOST="opendata-etl-poc-postgres.<password>.us-east-1.rds.amazonaws.com"
 DB_PASS="$(aws ssm get-parameter \
   --name /opendata-etl/poc/postgres/master_password \
   --with-decryption --query Parameter.Value --output text)"
