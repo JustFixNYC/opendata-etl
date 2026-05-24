@@ -131,6 +131,15 @@ export OPENDATA_DAGSTER_MATERIALIZE=full
 
 python3 scripts/provision_roles.py --manifest examples/definitions.local.yml
 
+Definition repos with `repo.yml` `sql_extensions: true` ship `sql/functions/*.sql` (API-facing Postgres functions). Apply them with `--local-repo` (checked-out tree) or `--load-repos` (clone from manifest), or rely on materialize `provision=True` hooks:
+
+```bash
+python3 scripts/provision_roles.py --manifest examples/definitions.local.yml \
+  --local-repo examples/definition-repo
+```
+
+EXECUTE is granted on functions referenced in `api_endpoints/` SQL to each repo’s `opendata_<schema>_read` role.
+
 dagster asset materialize -m pipeline.dagster_defs \
   --select 'nycdb2/nyc_housing/rentstab_v2/rentstab_v2'
 ```

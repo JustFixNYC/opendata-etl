@@ -162,7 +162,7 @@ def extract_and_land_dataset_bundle(
         if provision and manifest_path is not None and manifest_path.is_file():
             deployment = load_deployment_manifest(manifest_path)
             owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
-            run_provisioning(deployment, dsn, table_owner_role=owner)
+            run_provisioning(deployment, dsn, table_owner_role=owner, repos=(repo,))
         conn = psycopg.connect(dsn, autocommit=False)
 
     staging: dict[str, _StagingWork] = {}
@@ -390,7 +390,7 @@ def load_dataset_bundle_from_landing(
     if provision and manifest_path is not None and manifest_path.is_file():
         deployment = load_deployment_manifest(manifest_path)
         owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
-        run_provisioning(deployment, dsn, table_owner_role=owner)
+        run_provisioning(deployment, dsn, table_owner_role=owner, repos=(repo,))
 
     load_root = (
         work_dir / "load"

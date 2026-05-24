@@ -1,0 +1,13 @@
+path: /fixture/building-count
+method: GET
+description: |
+  Fixture endpoint calling a definition-repo SQL function (requires sql_extensions provisioning).
+statement_timeout_seconds: 30
+rate_limit:
+  anonymous: "60/minute"
+  api_key: "600/minute"
+params: []
+output:
+  format: json
+sql: |
+  SELECT fixture_building_count() AS building_count

@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Sequence
 
 from pipeline.definitions import DefinitionsLoadError, ordered_deployment_definition_entries
+
+if TYPE_CHECKING:
+    from pipeline.definitions import LoadedDefinitionRepo
 from pipeline.validation import SchemaValidationError, load_yaml, validate_deployment_document
 
 PUBLIC_READ_ROLE = "opendata_public_read"
@@ -184,8 +187,15 @@ def run_provisioning(
     dsn: str,
     *,
     table_owner_role: str = "opendata",
+    repos: Sequence[LoadedDefinitionRepo] | None = None,
+    apply_sql_extensions: bool = True,
 ) -> None:
-    """Execute provisioning in a single transaction (requires psycopg)."""
+    """Execute provisioning in a single transaction (requires psycopg).
+
+  When ``repos`` is provided and ``apply_sql_extensions`` is true, also applies each repo's
+  ``sql/functions/*.sql`` bundle (``repo.yml`` ``sql_extensions: true``) and grants EXECUTE
+  on API-referenced functions to the per-schema read role. See ``pipeline.sql_extensions``.
+    """
     try:
         import psycopg
     except ImportError as e:  # pragma: no cover
@@ -196,4 +206,9 @@ def run_provisioning(
         with conn.cursor() as cur:
             for sql in statements:
                 cur.execute(sql)
+        if repos and apply_sql_extensions:
+            from pipeline.sql_extensions import apply_repo_sql_extensions
+
+            for repo in repos:
+                apply_repo_sql_extensions(repo, conn, table_owner_role=table_owner_role)
         conn.commit()

@@ -68,7 +68,13 @@ def validate_definition_repo(repo_dir: Path) -> None:
     repo_yml = repo_dir / "repo.yml"
     if not repo_yml.is_file():
         raise SchemaValidationError(f"Missing {repo_yml}")
-    validate_json(load_schema("repo.schema.json"), load_yaml(repo_yml), str(repo_yml))
+    repo_meta = load_yaml(repo_yml)
+    validate_json(load_schema("repo.schema.json"), repo_meta, str(repo_yml))
+
+    from pipeline.sql_extensions import validate_sql_extensions_tree
+
+    if isinstance(repo_meta, dict):
+        validate_sql_extensions_tree(repo_dir, repo_yaml=repo_meta)
 
     ds_dir = repo_dir / "datasets"
     if ds_dir.is_dir():

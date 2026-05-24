@@ -53,6 +53,10 @@
       "minLength": 1,
       "maxLength": 512,
       "description": "Optional ECR/OCI image for derived job workers (scaled profile); defaults to deployment framework image."
+    },
+    "sql_extensions": {
+      "type": "boolean",
+      "description": "When true, this repo ships API-facing Postgres functions under sql/functions/*.sql (applied at provision/materialize)."
     }
   }
 }

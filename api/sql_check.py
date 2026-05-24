@@ -36,6 +36,8 @@ class EndpointSqlAnalysis:
     """Physical Postgres schemas referenced by the query (unqualified tables use ``default_schema``)."""
     bind_names: frozenset[str]
     """Named bind parameters (``:name`` / ``Placeholder``), excluding PostgreSQL casts ``::``."""
+    referenced_functions: frozenset[str]
+    """Unqualified user-defined function names invoked in the query (for SQL extension EXECUTE grants)."""
 
 
 def _collect_cte_aliases(expr: exp.Expression) -> set[str]:
@@ -112,6 +114,55 @@ def _bind_names(expr: exp.Expression) -> frozenset[str]:
     return frozenset(names)
 
 
+_BUILTIN_SQL_FUNCTIONS = frozenset(
+    {
+        "abs",
+        "avg",
+        "btrim",
+        "coalesce",
+        "count",
+        "date_part",
+        "date_trunc",
+        "exists",
+        "extract",
+        "lower",
+        "max",
+        "min",
+        "nullif",
+        "regexp_replace",
+        "round",
+        "sum",
+        "trim",
+        "upper",
+        "unnest",
+    }
+)
+
+
+def _referenced_functions(expr: exp.Expression) -> frozenset[str]:
+    """Collect unqualified UDF names (``my_func()``), excluding common SQL builtins."""
+    names: set[str] = set()
+    for node in expr.find_all(exp.Anonymous):
+        inner = node.this
+        if isinstance(inner, str):
+            name = inner
+        elif isinstance(inner, exp.Column):
+            if inner.table or inner.db or inner.catalog:
+                continue
+            ident = inner.this
+            if isinstance(ident, exp.Identifier) and ident.name:
+                name = str(ident.name)
+            else:
+                continue
+        elif isinstance(inner, exp.Identifier) and inner.name:
+            name = str(inner.name)
+        else:
+            continue
+        if name.lower() not in _BUILTIN_SQL_FUNCTIONS:
+            names.add(name)
+    return frozenset(names)
+
+
 def analyze_endpoint_sql(sql: str, *, default_schema: str) -> EndpointSqlAnalysis:
     """Validate ``sql`` for the read-only API and return referenced schemas + bind names.
 
@@ -141,6 +192,7 @@ def analyze_endpoint_sql(sql: str, *, default_schema: str) -> EndpointSqlAnalysi
     return EndpointSqlAnalysis(
         referenced_schemas=_referenced_schemas(root, default_schema=default_schema),
         bind_names=_bind_names(root),
+        referenced_functions=_referenced_functions(root),
     )
 
 

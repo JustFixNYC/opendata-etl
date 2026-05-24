@@ -148,7 +148,7 @@ def materialize_derived_job_bundle(
     if provision and manifest_path is not None and manifest_path.is_file():
         deployment_doc = load_deployment_manifest(manifest_path)
         owner = (envmap.get("OPENDATA_PG_OWNER_ROLE") or "opendata").strip()
-        run_provisioning(deployment_doc, dsn, table_owner_role=owner)
+        run_provisioning(deployment_doc, dsn, table_owner_role=owner, repos=(repo,))
 
     load_root = (
         work_dir / "derived_load" / job_name / ctx.run_id
