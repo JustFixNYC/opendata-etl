@@ -18,6 +18,7 @@ from starlette.responses import StreamingResponse
 
 from api.access import SchemaAccessModel, build_schema_access_model
 from api.auth_keys import parse_api_key_header, roles_for_bearer
+from api.rate_limit import decorate_handler_with_rate_limit, resolve_rate_limits
 from api.params import build_endpoint_query_model, validate_param_extras
 from api.query_runner import execute_sql_json, iter_csv_lines, rows_to_geojson_features
 from api.sql_check import (
@@ -30,6 +31,11 @@ from api.sql_check import (
 from pipeline.definitions import DefinitionsLoadResult, LoadedDefinitionRepo
 from pipeline.provisioning import PUBLIC_READ_ROLE
 from pipeline.validation import load_yaml
+
+try:
+    from slowapi import Limiter
+except ImportError:  # pragma: no cover - optional for minimal test installs
+    Limiter = None  # type: ignore[misc, assignment]
 
 
 def _safe_identifier(s: str) -> str:
@@ -191,7 +197,12 @@ def iter_repo_api_endpoints(repo: LoadedDefinitionRepo) -> list[tuple[str, dict[
     return out
 
 
-def register_yaml_endpoints(app: FastAPI, load_result: DefinitionsLoadResult) -> int:
+def register_yaml_endpoints(
+    app: FastAPI,
+    load_result: DefinitionsLoadResult,
+    *,
+    limiter: Limiter | None = None,
+) -> int:
     """Attach routes from YAML; returns count of registered routes (HTTP methods).
 
     Raises
@@ -274,6 +285,15 @@ def register_yaml_endpoints(app: FastAPI, load_result: DefinitionsLoadResult) ->
                 if fmt == "geojson"
                 else None,
             )
+
+            if limiter is not None:
+                anon_limit, api_key_limit = resolve_rate_limits(doc)
+                handler = decorate_handler_with_rate_limit(
+                    limiter,
+                    handler,
+                    anonymous=anon_limit,
+                    api_key=api_key_limit,
+                )
 
             tag = f"{repo.name} ({repo.schema})"
             openapi_params = openapi_query_parameters_from_specs(raw_params)

@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from api.connections import RolePoolManager
 from api.factory import register_yaml_endpoints
+from api.rate_limit import create_app_limiter, register_limiter_on_app
 from pipeline.factory import (
     _resolve_manifest_for_dagster,
     _resolve_work_dir_for_dagster,
@@ -48,12 +49,15 @@ def create_app() -> FastAPI:
         ),
     )
 
+    limiter = create_app_limiter()
+    register_limiter_on_app(app, limiter)
+
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         """Liveness probe; DB pools are optional until ``OPENDATA_API_ROLE_DSNS`` is set."""
         return {"status": "ok"}
 
-    n = register_yaml_endpoints(app, load_result)
+    n = register_yaml_endpoints(app, load_result, limiter=limiter)
     if n:
         app.description = (app.description or "") + f"\n\n**Registered YAML endpoints:** {n}"
 

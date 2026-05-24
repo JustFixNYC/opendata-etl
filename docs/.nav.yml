@@ -7,6 +7,7 @@
 nav:
   - Home: index.md
   - Local development: local-development.md
+  - API security: api-security.md
   - Deployment profiles: deployment-profiles.md
   - AWS deployment:
       - Overview: deployment/aws-scaled.md
