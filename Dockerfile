@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/workspace
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl git \
+  && apt-get install -y --no-install-recommends curl git gdal-bin \
   && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md LICENSE ./
