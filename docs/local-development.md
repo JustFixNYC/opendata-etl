@@ -18,19 +18,19 @@ docker compose up --build -d
 
 Services:
 
-| Service    | Purpose |
-|------------|---------|
-| `postgres` | PostgreSQL 16 + PostGIS (`postgis/postgis:16-3.4`). |
-| `minio`    | S3-compatible landing zone. Console on host port `MINIO_CONSOLE_PORT` (default 9001). |
-| `dagster`  | `dagster dev` with skeleton dataset assets from `pipeline.factory` (`pipeline.dagster_defs`). |
-| `api`      | FastAPI read-only API: YAML-driven routes from loaded definition repos (Step 10); query execution is stubbed until Step 11. |
+| Service      | Purpose |
+|--------------|---------|
+| `postgres`   | PostgreSQL 16 + PostGIS (`postgis/postgis:16-3.4`). |
+| `minio`      | S3-compatible landing zone. Console on host port `MINIO_CONSOLE_PORT` (default 9001). |
+| `minio-init` | One-shot init: creates `S3_BUCKET` (default `opendata-landing`) via `mc mb --ignore-existing`. |
+| `dagster`    | `dagster dev` with skeleton dataset assets from `pipeline.factory` (`pipeline.dagster_defs`). |
+| `api`        | FastAPI read-only API: YAML-driven routes from loaded definition repos (Step 10); query execution is stubbed until Step 11. |
 
 **Blockers / placeholders (Step 4+):**
 
 - Dagster assets include **skeleton dataset tables** (Steps 6–8) plus **dbt models** when a definition repo contains `models/dbt_project.yml` and `dbt parse` succeeds at definition load time (Step 9). Install `dbt` on the host or use the project Docker image (`.[compose]` includes `dbt-core` + `dbt-postgres` + `dagster-dbt`).
 - The API registers routes from ``api_endpoints/*.yml`` (Step 10); SQL is not executed until Step 11 (per-role pools + validation).
-- Create the MinIO bucket named in `S3_BUCKET` (default `opendata-landing`) before extractors write objects; Compose does not auto-create it.
-- **S3 landing (Step 18):** set `OPENDATA_LANDING_BACKEND=s3` and `OPENDATA_LOAD_BACKEND=copy_local` to land extract/derived CSVs on MinIO and download before COPY. On AWS RDS use `OPENDATA_LOAD_BACKEND=s3_copy_rds` (see [aws-s3-copy-bootstrap.md](deployment/aws-s3-copy-bootstrap.md)). Paths: `extract/{dataset}/{date}/{table}.csv` and `derived/{repo}/{job}/{run_id}/{table}.csv`. Default `local` keeps CSVs on disk only.
+- **S3 landing (Step 18):** set `OPENDATA_LANDING_BACKEND=s3` and `OPENDATA_LOAD_BACKEND=copy_local` to land extract/derived CSVs on MinIO and download before COPY. The landing bucket (`S3_BUCKET`, default `opendata-landing`) is created automatically by `minio-init` on `docker compose up`; `dagster` and `api` start only after that init succeeds. On AWS RDS use `OPENDATA_LOAD_BACKEND=s3_copy_rds` (see [aws-s3-copy-bootstrap.md](deployment/aws-s3-copy-bootstrap.md)). Paths: `extract/{dataset}/{date}/{table}.csv` and `derived/{repo}/{job}/{run_id}/{table}.csv`. Default `local` keeps CSVs on disk only.
 
 ## Environment variables
 
