@@ -22,11 +22,6 @@
     },
     "freshness_sla_hours": { "type": "number", "minimum": 0 },
     "source_freshness_sla_hours": { "type": "number", "minimum": 0 },
-    "min_row_count": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Minimum data rows per table after extract; also fails when row count drops below the prior successful extract."
-    },
     "schema_contract": {
       "type": "string",
       "enum": ["freeze", "evolve"]
@@ -246,6 +241,16 @@
           "description": "Known extra source headers (raw or derived match); suppresses new-column alerts only — does not load these columns.",
           "items": { "type": "string", "minLength": 1, "maxLength": 256 },
           "uniqueItems": true
+        },
+        "min_row_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum staging data rows after extract; fails when count is below this floor."
+        },
+        "allow_row_count_decrease": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, do not fail extract when row count is below the prior successful staging row count (trailer/EOF and min_row_count still apply)."
         }
       }
     }

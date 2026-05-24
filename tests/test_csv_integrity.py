@@ -61,6 +61,7 @@ def test_prior_row_count_shrink_fails() -> None:
             data_row_count=2,
             min_row_count=None,
             prior_staging_row_count=10,
+            allow_row_count_decrease=False,
             label="demo/rows",
         )
 
@@ -104,13 +105,13 @@ def test_extract_table_to_staging_good_passes(tmp_path: Path) -> None:
         "pipeline.extract.orchestrate.extract_table_to_raw_csv",
         return_value=(raw, None, False),
     ):
+        table_doc["min_row_count"] = 1
         result = extract_table_to_staging(
             table_doc,
             source_credentials={},
             credential_decls={},
             work_dir=tmp_path / "work",
             label="demo/rows",
-            min_row_count=1,
         )
     assert result.staging_row_count == 2
     assert result.staging_csv_path.is_file()
@@ -139,8 +140,8 @@ def test_extract_and_land_fails_before_landing_on_truncated(
     )
     (tmp_path / "datasets").mkdir()
     (tmp_path / "datasets" / "sample_csv.yml").write_text(
-        "name: sample_csv\nmin_row_count: 1\ntables:\n"
-        "  - name: rows\n    source:\n      type: csv\n"
+        "name: sample_csv\ntables:\n"
+        "  - name: rows\n    min_row_count: 1\n    source:\n      type: csv\n"
         '      url: "https://example.invalid/x.csv"\n'
         "    columns:\n      - name: id\n        type: bigint\n"
         "      - name: name\n        type: text\n",

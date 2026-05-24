@@ -38,6 +38,7 @@ def verify_staging_projection_integrity(
     stats: StagingProjectionStats,
     min_row_count: int | None,
     prior_staging_row_count: int | None,
+    allow_row_count_decrease: bool = False,
     label: str,
 ) -> int:
     """Apply trailer/EOF and row-count checks using projection scan stats (no extra full parses)."""
@@ -63,6 +64,7 @@ def verify_staging_projection_integrity(
         data_row_count=stats.staging_row_count,
         min_row_count=min_row_count,
         prior_staging_row_count=prior_staging_row_count,
+        allow_row_count_decrease=allow_row_count_decrease,
         label=label,
     )
     return stats.staging_row_count
@@ -73,6 +75,7 @@ def verify_staging_row_count(
     data_row_count: int,
     min_row_count: int | None,
     prior_staging_row_count: int | None,
+    allow_row_count_decrease: bool = False,
     label: str,
 ) -> None:
     """Enforce optional YAML floor and prior-run row count (fail closed on shrink)."""
@@ -80,7 +83,11 @@ def verify_staging_row_count(
         raise CsvIntegrityError(
             f"{label}: row count {data_row_count} is below min_row_count {min_row_count}"
         )
-    if prior_staging_row_count is not None and data_row_count < prior_staging_row_count:
+    if (
+        not allow_row_count_decrease
+        and prior_staging_row_count is not None
+        and data_row_count < prior_staging_row_count
+    ):
         raise CsvIntegrityError(
             f"{label}: row count {data_row_count} is below prior run "
             f"({prior_staging_row_count} rows; possible truncated download)"

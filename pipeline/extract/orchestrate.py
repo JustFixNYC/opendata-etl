@@ -200,6 +200,7 @@ def _run_csv_integrity_checks(
     label: str,
     min_row_count: int | None,
     prior_staging_row_count: int | None,
+    allow_row_count_decrease: bool,
 ) -> int:
     try:
         return verify_staging_projection_integrity(
@@ -208,6 +209,7 @@ def _run_csv_integrity_checks(
             stats=projection_stats,
             min_row_count=min_row_count,
             prior_staging_row_count=prior_staging_row_count,
+            allow_row_count_decrease=allow_row_count_decrease,
             label=label,
         )
     except CsvIntegrityError as e:
@@ -225,6 +227,7 @@ def extract_table_to_staging(
     stored_fingerprint: Any | None = None,
     min_row_count: int | None = None,
     prior_staging_row_count: int | None = None,
+    allow_row_count_decrease: bool = False,
 ) -> TableStagingResult:
     """Full extract path for one table: fetch → raw CSV → projected staging CSV."""
     tname = table_doc.get("name")
@@ -256,6 +259,7 @@ def extract_table_to_staging(
         label=label,
         min_row_count=min_row_count,
         prior_staging_row_count=prior_staging_row_count,
+        allow_row_count_decrease=allow_row_count_decrease,
     )
     return TableStagingResult(
         table_name=tname,
@@ -275,13 +279,17 @@ def extract_dataset_to_staging(
     work_dir: Path,
     dataset_label: str,
     environ: Mapping[str, str] | None = None,
-    min_row_count: int | None = None,
     prior_row_count_by_table: Mapping[str, int] | None = None,
 ) -> dict[str, TableStagingResult]:
     """Extract every table in ``dataset_doc`` to staging CSVs (multi-table bundle safe)."""
     tables = dataset_doc.get("tables")
     if not isinstance(tables, list) or not tables:
         raise ExtractOrchestrationError(f"{dataset_label}: tables must be a non-empty list")
+    dname = dataset_doc.get("name")
+    if not isinstance(dname, str) or not dname:
+        raise ExtractOrchestrationError(f"{dataset_label}: dataset needs a string name")
+    from pipeline.table_integrity import TableIntegrityConfigError, table_integrity_options
+
     out: dict[str, TableStagingResult] = {}
     for t in tables:
         if not isinstance(t, dict):
@@ -290,7 +298,13 @@ def extract_dataset_to_staging(
         if not isinstance(tn, str):
             raise ExtractOrchestrationError(f"{dataset_label}: each table needs a string name")
         label = f"{dataset_label}/{tn}"
+        try:
+            integrity = table_integrity_options(t, dataset_name=dname, table_name=tn)
+        except TableIntegrityConfigError as e:
+            raise ExtractOrchestrationError(str(e)) from e
         prior_rows = (prior_row_count_by_table or {}).get(tn)
+        if integrity.allow_row_count_decrease:
+            prior_rows = None
         out[tn] = extract_table_to_staging(
             t,
             source_credentials=source_credentials,
@@ -298,8 +312,9 @@ def extract_dataset_to_staging(
             work_dir=work_dir,
             label=label,
             environ=environ,
-            min_row_count=min_row_count,
+            min_row_count=integrity.min_row_count,
             prior_staging_row_count=prior_rows,
+            allow_row_count_decrease=integrity.allow_row_count_decrease,
         )
     return out
 
