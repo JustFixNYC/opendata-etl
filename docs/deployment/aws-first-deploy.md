@@ -291,7 +291,7 @@ POC examples (`definitions.poc.yml`):
 Optional sanity check on the **orchestrator**:
 
 ```bash
-sudo docker exec dagster dagster definitions validate -m pipeline.dagster_defs
+sudo docker exec -w /workspace dagster dg check defs --no-check-yaml
 ```
 
 #### Minimum materialization (API smoke + quick wiring proof)
@@ -304,12 +304,12 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 ECR_URL="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/opendata-etl-poc/framework"
 
 # 1) Extract — lands CSV under s3://<landing_bucket>/extract/...
-sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/fixture_hello/extract/greetings'
+sudo docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/fixture_hello/extract/greetings"'
 
 # 2) Load — COPY from S3 into schema nyc_housing (requires Part 4 bootstrap + env DATABASE_URL/S3_BUCKET)
-sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/fixture_hello/load/greetings'
+sudo docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/fixture_hello/load/greetings"'
 ```
 
 Verify S3 (orchestrator instance profile can list the landing bucket):
@@ -341,15 +341,15 @@ For full parallel POC validation (second dataset + dbt), continue with Part **9*
 
 ```bash
 # Tier B extract (pick rentstab_v2 and/or nycc; nycc needs ogr2ogr in the image)
-sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/rentstab_v2/extract/rentstab_v2'
+sudo docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/rentstab_v2/extract/rentstab_v2"'
 
-sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/rentstab_v2/load/rentstab_v2'
+sudo docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/rentstab_v2/load/rentstab_v2"'
 
 # dbt view after fixture_hello load
-sudo docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/dbt/fixture_greeting_count'
+sudo docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/dbt/fixture_greeting_count"'
 ```
 
 On `profile: standard`, **schedules** register extract at **10:00** and load at **02:00** `America/New_York` (outside / inside **22:00–07:00**). For manual runs you can materialize back-to-back; for schedule soak tests, enable jobs in the UI after wiring is proven.

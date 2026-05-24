@@ -9,7 +9,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends curl git gdal-bin \
   && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml dg.toml README.md LICENSE ./
 COPY pipeline ./pipeline
 COPY api ./api
 COPY schemas ./schemas

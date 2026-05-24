@@ -170,12 +170,12 @@ docker push "${ECR_URL}:poc"
 On orchestrator (SSM session), after env file and manifest are in place:
 
 ```bash
-docker run --rm \
+docker run --rm -w /workspace \
   --env-file /etc/opendata-etl/env \
   -v /etc/opendata-etl/definitions.yml:/etc/opendata-etl/definitions.yml:ro \
   -v /var/lib/opendata-etl:/var/lib/opendata-etl \
   "$ECR_URL:poc" \
-  dagster definitions validate -m pipeline.dagster_defs
+  dg check defs --no-check-yaml
 ```
 
 Expect assets for `fixture_hello`, `rentstab_v2`, `nycc` (extract + load each) and dbt model `fixture_greeting_count`.
@@ -190,7 +190,7 @@ curl -sS http://127.0.0.1:8000/healthz
 
 Issue an API key from a host with RDS access ([`scripts/issue_api_key.py`](https://github.com/JustFixNYC/opendata-etl/blob/main/scripts/issue_api_key.py)) using role `opendata_nyc_housing_read` (created by provisioning).
 
-**Phase B done when:** `dagster definitions validate` passes; Dagster UI lists POC assets; API `/healthz` returns 200.
+**Phase B done when:** `dg check defs --no-check-yaml` passes; Dagster UI lists POC assets; API `/healthz` returns 200.
 
 ---
 
@@ -216,16 +216,16 @@ From orchestrator (replace table names if YAML differs):
 ECR_URL=$(terraform output -raw ecr_framework_repository_url)  # run from laptop in infra/aws, or set on instance
 
 # Small fixture
-docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/fixture_hello/extract/greetings'
+docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/fixture_hello/extract/greetings"'
 
 # Larger source (pick one for first POC pass; run both before calling Phase C complete)
-docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/rentstab_v2/extract/rentstab_v2'
+docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/rentstab_v2/extract/rentstab_v2"'
 
 # Shapefile (requires ogr2ogr in image)
-docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/nycc/extract/nycc'
+docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/nycc/extract/nycc"'
 ```
 
 Verify S3 landing:
@@ -242,14 +242,14 @@ Record extract duration and approximate object sizes in your run log.
 During **22:00–07:00 America/New_York** (or immediately after extract for wiring proof):
 
 ```bash
-docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/fixture_hello/load/greetings'
+docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/fixture_hello/load/greetings"'
 
-docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/rentstab_v2/load/rentstab_v2'
+docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/rentstab_v2/load/rentstab_v2"'
 
-docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/nycc/load/nycc'
+docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/nycc/load/nycc"'
 ```
 
 Confirm in RDS (`psql` or Postico): tables in `nyc_housing` with expected row counts; load logs show server-side COPY (not full CSV download to EC2).
@@ -257,8 +257,8 @@ Confirm in RDS (`psql` or Postico): tables in `nyc_housing` with expected row co
 **dbt (included in Phase C):** after `fixture_hello` load:
 
 ```bash
-docker exec dagster dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/dbt/fixture_greeting_count'
+docker exec -w /workspace dagster dg launch --assets \
+  'key:"nycdb2/nyc_housing/dbt/fixture_greeting_count"'
 ```
 
 **Derived docker (optional):** [`definitions.poc.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.poc.yml) does not enable derived jobs (`nycdb2` has no `derived_python` jobs). Skip for POC subset, or add a derived-enabled repo to the manifest in a follow-up experiment.
@@ -302,7 +302,7 @@ Blockers:
 
 | Symptom | Action |
 |---------|--------|
-| Empty Dagster asset list | Manifest path; git clone auth for `nycdb2` URL; run `dagster definitions validate` |
+| Empty Dagster asset list | Manifest path; git clone auth for `nycdb2` URL; run `dg check defs --no-check-yaml` |
 | Extract OK, load fails S3 | [Bootstrap](aws-s3-copy-bootstrap.md); `OPENDATA_LOAD_BACKEND=s3_copy_rds`; `S3_BUCKET` set |
 | `nycc` extract fails | Install/use image with GDAL; see [local development](../local-development.md) shapefile note |
 | Load before extract | Run extract assets first; check `extract_landing_exists` |

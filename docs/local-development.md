@@ -121,7 +121,7 @@ The script is idempotent. It reads the same `definitions.yml` contract as `load_
 
 ## Host Dagster + Docker Postgres (Workflow A)
 
-Common setup: ``docker compose up -d`` for Postgres/MinIO only, then run ``dagster`` or ``dagster asset materialize`` on the **host** (venv with ``.[compose]``).
+Common setup: ``docker compose up -d`` for Postgres/MinIO only, then run ``dagster dev`` or ``dg launch --assets`` on the **host** (venv with ``.[compose]``; ``dg.toml`` at repo root).
 
 The hostname ``postgres`` in ``DATABASE_URL`` resolves only **inside** the Compose network. If Dagster loads a ``.env`` meant for containers, you will see:
 
@@ -148,11 +148,14 @@ python3 scripts/provision_roles.py --manifest examples/definitions.local.yml \
 
 EXECUTE is granted on functions referenced in `api_endpoints/` SQL to each repo’s `opendata_<schema>_read` role.
 
-dagster asset materialize -m pipeline.dagster_defs \
-  --select 'nycdb2/nyc_housing/rentstab_v2/rentstab_v2'
+dg launch --assets 'key:"nycdb2/nyc_housing/rentstab_v2/extract/rentstab_v2"'
 ```
 
-Tip: keep ``DATABASE_URL`` with ``127.0.0.1`` in ``.env`` when you usually materialize from the host; use ``postgres`` only when running inside the ``dagster`` service (``docker compose exec dagster …``).
+Set the same ``OPENDATA_DEFINITIONS_MANIFEST_PATH``, ``OPENDATA_DEFINITIONS_WORK_DIR``, and ``OPENDATA_DAGSTER_DEFINITION_LOAD`` as for ``dagster dev`` so ``dg`` loads the same manifest-backed definitions (see ``.env.example``).
+
+Tip: keep ``DATABASE_URL`` with ``127.0.0.1`` in ``.env`` when you usually materialize from the host; use ``postgres`` only when running inside the ``dagster`` service (``docker compose exec -w /workspace dagster dg …``).
+
+**Superseded:** ``dagster asset materialize -m pipeline.dagster_defs --select …`` — use ``dg launch --assets`` with [asset selection syntax](https://docs.dagster.io/guides/build/assets/asset-selection-syntax) (``key:"repo/schema/dataset/extract/table"`` for split assets).
 
 **Shapefile (`nycc`) requires GDAL:** ``ogr2ogr`` must be on ``PATH`` and runnable. The framework Docker image installs ``gdal-bin`` (``Dockerfile``) so in-container materialize works without a host GDAL install.
 
@@ -166,7 +169,7 @@ On the host (Workflow A), install GDAL separately (``brew install gdal`` / ``apt
 
 ## Non-Docker workflows
 
-- Validate definitions load in Dagster: ``dagster definitions validate -m pipeline.dagster_defs`` (from repo root with optional deps installed).
+- Validate definitions load from repo root (requires ``.[compose]``): ``dg check toml`` and ``dg check defs --no-check-yaml`` (this repo builds Definitions in ``pipeline.factory``, not ``pipeline/defs`` autoload). Equivalent: ``dagster definitions validate -m pipeline.dagster_defs``.
 - Dagster (after installing optional `compose` deps from `pyproject.toml`): `dagster dev -m pipeline.dagster_defs` from the repo root.
 - API: `uvicorn api.app:app --reload --host 0.0.0.0 --port 8000`.
 

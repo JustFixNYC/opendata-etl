@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Dagster dg CLI project config (Step 26e). Same code location as `dagster dev -m pipeline.dagster_defs`.
+directory_type = "project"
+
+[project]
+root_module = "pipeline"
+code_location_target_module = "pipeline.dagster_defs"
+code_location_name = "opendata-etl"
