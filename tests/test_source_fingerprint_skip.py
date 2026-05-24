@@ -102,6 +102,7 @@ def test_extract_skips_when_fingerprint_unchanged(
         source_changed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         last_landing_uri=str(prior_csv),
         last_run_date="2030-01-01",
+        last_staging_row_count=1,
     )
 
     class FakeConn:

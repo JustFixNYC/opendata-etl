@@ -22,6 +22,11 @@
     },
     "freshness_sla_hours": { "type": "number", "minimum": 0 },
     "source_freshness_sla_hours": { "type": "number", "minimum": 0 },
+    "min_row_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Minimum data rows per table after extract; also fails when row count drops below the prior successful extract."
+    },
     "schema_contract": {
       "type": "string",
       "enum": ["freeze", "evolve"]

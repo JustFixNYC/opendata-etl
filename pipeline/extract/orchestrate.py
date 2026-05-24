@@ -18,7 +18,12 @@ from pipeline.extract.shapefile import (
     run_ogr2ogr_shapefile_to_csv,
     verify_ogr2ogr_runtime,
 )
-from pipeline.transform.csv_columns import CsvColumnError, project_csv_to_staging
+from pipeline.extract.csv_integrity import CsvIntegrityError, verify_staging_projection_integrity
+from pipeline.transform.csv_columns import (
+    CsvColumnError,
+    StagingProjectionStats,
+    project_csv_to_staging,
+)
 
 
 class ExtractOrchestrationError(RuntimeError):
@@ -35,6 +40,7 @@ class TableStagingResult:
     landing_uri: str | None = None
     source_unchanged: bool = False
     source_fingerprint: Any | None = None
+    staging_row_count: int | None = None
 
 
 def _require_source(table_doc: Mapping[str, Any], *, label: str) -> dict[str, Any]:
@@ -177,13 +183,35 @@ def project_table_staging_csv(
     staging_csv_path: Path,
     *,
     label: str,
-) -> tuple[str, ...]:
-    """Project ``raw_csv_path`` to ``staging_csv_path``; return unexpected new source headers."""
+) -> tuple[tuple[str, ...], StagingProjectionStats]:
+    """Project ``raw_csv_path`` to ``staging_csv_path``; return headers + projection stats."""
     try:
-        unexpected = project_csv_to_staging(raw_csv_path, staging_csv_path, table_doc)
+        unexpected, stats = project_csv_to_staging(raw_csv_path, staging_csv_path, table_doc)
     except CsvColumnError as e:
         raise ExtractOrchestrationError(f"{label}: {e}") from e
-    return tuple(unexpected)
+    return tuple(unexpected), stats
+
+
+def _run_csv_integrity_checks(
+    *,
+    raw_csv_path: Path,
+    staging_csv_path: Path,
+    projection_stats: StagingProjectionStats,
+    label: str,
+    min_row_count: int | None,
+    prior_staging_row_count: int | None,
+) -> int:
+    try:
+        return verify_staging_projection_integrity(
+            raw_path=raw_csv_path,
+            staging_path=staging_csv_path,
+            stats=projection_stats,
+            min_row_count=min_row_count,
+            prior_staging_row_count=prior_staging_row_count,
+            label=label,
+        )
+    except CsvIntegrityError as e:
+        raise ExtractOrchestrationError(str(e)) from e
 
 
 def extract_table_to_staging(
@@ -195,6 +223,8 @@ def extract_table_to_staging(
     label: str,
     environ: Mapping[str, str] | None = None,
     stored_fingerprint: Any | None = None,
+    min_row_count: int | None = None,
+    prior_staging_row_count: int | None = None,
 ) -> TableStagingResult:
     """Full extract path for one table: fetch → raw CSV → projected staging CSV."""
     tname = table_doc.get("name")
@@ -218,13 +248,22 @@ def extract_table_to_staging(
             source_fingerprint=fp,
         )
     staging = work_dir / tname / "staging.csv"
-    unexpected = project_table_staging_csv(table_doc, raw, staging, label=label)
+    unexpected, projection_stats = project_table_staging_csv(table_doc, raw, staging, label=label)
+    staging_rows = _run_csv_integrity_checks(
+        raw_csv_path=raw,
+        staging_csv_path=staging,
+        projection_stats=projection_stats,
+        label=label,
+        min_row_count=min_row_count,
+        prior_staging_row_count=prior_staging_row_count,
+    )
     return TableStagingResult(
         table_name=tname,
         staging_csv_path=staging,
         unexpected_new_headers=unexpected,
         source_unchanged=False,
         source_fingerprint=fp,
+        staging_row_count=staging_rows,
     )
 
 
@@ -236,6 +275,8 @@ def extract_dataset_to_staging(
     work_dir: Path,
     dataset_label: str,
     environ: Mapping[str, str] | None = None,
+    min_row_count: int | None = None,
+    prior_row_count_by_table: Mapping[str, int] | None = None,
 ) -> dict[str, TableStagingResult]:
     """Extract every table in ``dataset_doc`` to staging CSVs (multi-table bundle safe)."""
     tables = dataset_doc.get("tables")
@@ -249,6 +290,7 @@ def extract_dataset_to_staging(
         if not isinstance(tn, str):
             raise ExtractOrchestrationError(f"{dataset_label}: each table needs a string name")
         label = f"{dataset_label}/{tn}"
+        prior_rows = (prior_row_count_by_table or {}).get(tn)
         out[tn] = extract_table_to_staging(
             t,
             source_credentials=source_credentials,
@@ -256,6 +298,8 @@ def extract_dataset_to_staging(
             work_dir=work_dir,
             label=label,
             environ=environ,
+            min_row_count=min_row_count,
+            prior_staging_row_count=prior_rows,
         )
     return out
 

@@ -24,6 +24,7 @@ class SourceSnapshotRow:
     source_changed_at: datetime
     last_landing_uri: str | None
     last_run_date: str | None
+    last_staging_row_count: int | None
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -39,7 +40,8 @@ def get_source_snapshot(conn: Any, source_key: str) -> SourceSnapshotRow | None:
             f"""
             SELECT source_key, repo_name, schema_name, dataset_name, table_name,
                    source_type, fingerprint_mode, etag, last_modified,
-                   source_changed_at, last_landing_uri, last_run_date
+                   source_changed_at, last_landing_uri, last_run_date,
+                   last_staging_row_count
             FROM {tbl}
             WHERE source_key = %s
             """,
@@ -67,6 +69,7 @@ def get_source_snapshot(conn: Any, source_key: str) -> SourceSnapshotRow | None:
         source_changed_at=_as_utc(changed),
         last_landing_uri=str(row[10]) if row[10] is not None else None,
         last_run_date=str(row[11]) if row[11] is not None else None,
+        last_staging_row_count=int(row[12]) if row[12] is not None else None,
     )
 
 
@@ -85,6 +88,7 @@ def upsert_source_snapshot(
     source_changed: bool,
     last_landing_uri: str | None,
     last_run_date: str | None,
+    last_staging_row_count: int | None = None,
     now: datetime | None = None,
 ) -> None:
     """Insert or update a snapshot; bump ``source_changed_at`` only when ``source_changed``."""
@@ -96,11 +100,12 @@ def upsert_source_snapshot(
             INSERT INTO {tbl} (
                 source_key, repo_name, schema_name, dataset_name, table_name,
                 source_type, fingerprint_mode, etag, last_modified,
-                source_changed_at, last_landing_uri, last_run_date, updated_at
+                source_changed_at, last_landing_uri, last_run_date,
+                last_staging_row_count, updated_at
             ) VALUES (
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
-                %s, %s, %s, %s
+                %s, %s, %s, %s, %s
             )
             ON CONFLICT (source_key) DO UPDATE SET
                 repo_name = EXCLUDED.repo_name,
@@ -117,6 +122,9 @@ def upsert_source_snapshot(
                 END,
                 last_landing_uri = COALESCE(EXCLUDED.last_landing_uri, {tbl}.last_landing_uri),
                 last_run_date = COALESCE(EXCLUDED.last_run_date, {tbl}.last_run_date),
+                last_staging_row_count = COALESCE(
+                    EXCLUDED.last_staging_row_count, {tbl}.last_staging_row_count
+                ),
                 updated_at = EXCLUDED.updated_at
             """,
             (
@@ -132,6 +140,7 @@ def upsert_source_snapshot(
                 ts,
                 last_landing_uri,
                 last_run_date,
+                last_staging_row_count,
                 ts,
                 source_changed,
             ),
@@ -147,4 +156,5 @@ def snapshot_as_mapping(row: SourceSnapshotRow) -> Mapping[str, Any]:
         "source_changed_at": row.source_changed_at,
         "last_landing_uri": row.last_landing_uri,
         "last_run_date": row.last_run_date,
+        "last_staging_row_count": row.last_staging_row_count,
     }

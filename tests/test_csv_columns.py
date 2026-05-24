@@ -25,8 +25,9 @@ def _violations_table() -> dict:
 def test_project_csv_rewrites_headers_and_rows(tmp_path: Path) -> None:
     src = FIXTURES / "source_messy.csv"
     dest = tmp_path / "staged.csv"
-    unexpected = project_csv_to_staging(src, dest, _violations_table())
+    unexpected, stats = project_csv_to_staging(src, dest, _violations_table())
     assert unexpected == []
+    assert stats.staging_row_count == 1
     headers = parse_csv_headers(dest)
     assert headers == ["violationid", "ucbbl"]
     body = dest.read_text(encoding="utf-8").splitlines()

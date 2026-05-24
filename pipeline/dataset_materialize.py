@@ -103,6 +103,17 @@ def _table_doc_by_name(doc: dict[str, Any], table_name: str, dataset_name: str) 
     raise MaterializeError(f"{dataset_name}: no table named {table_name!r}")
 
 
+def _dataset_min_row_count(doc: dict[str, Any], dataset_name: str) -> int | None:
+    raw = doc.get("min_row_count")
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        raise MaterializeError(
+            f"{dataset_name}: min_row_count must be a non-negative integer when set"
+        )
+    return raw
+
+
 def _fingerprint_skip_enabled(environ: Mapping[str, str]) -> bool:
     raw = (environ.get("OPENDATA_SOURCE_FINGERPRINTS") or "auto").strip().lower()
     if raw in ("0", "false", "off", "no"):
@@ -122,6 +133,7 @@ class _StagingWork:
     source_fingerprint: Any
     landing_uri: str | Path | None = None
     run_date: str | None = None
+    staging_row_count: int | None = None
 
 
 def extract_and_land_dataset_bundle(
@@ -149,6 +161,7 @@ def extract_and_land_dataset_bundle(
 
     dsn = (envmap.get("DATABASE_URL") or "").strip()
     use_fingerprints = _fingerprint_skip_enabled(envmap)
+    min_row_count = _dataset_min_row_count(doc, dataset_name)
 
     try:
         import psycopg
@@ -205,6 +218,7 @@ def extract_and_land_dataset_bundle(
                 )
                 continue
 
+        prior_row_count = snapshot_row.last_staging_row_count if snapshot_row is not None else None
         try:
             result = extract_table_to_staging(
                 table_doc,
@@ -214,6 +228,8 @@ def extract_and_land_dataset_bundle(
                 label=f"{label}/{tn}",
                 environ=envmap,
                 stored_fingerprint=stored_fp,
+                min_row_count=min_row_count,
+                prior_staging_row_count=prior_row_count,
             )
         except ExtractOrchestrationError as e:
             raise MaterializeError(str(e)) from e
@@ -237,6 +253,7 @@ def extract_and_land_dataset_bundle(
             staging_csv_path=result.staging_csv_path,
             source_unchanged=False,
             source_fingerprint=result.source_fingerprint,
+            staging_row_count=result.staging_row_count,
         )
 
     table_landing: dict[str, str | Path] = {}
@@ -302,6 +319,7 @@ def extract_and_land_dataset_bundle(
                     source_changed=not work.source_unchanged,
                     last_landing_uri=str(table_landing[tn]),
                     last_run_date=str(effective_run_date),
+                    last_staging_row_count=work.staging_row_count,
                 )
             conn.commit()
         finally:

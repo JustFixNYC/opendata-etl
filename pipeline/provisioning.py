@@ -165,6 +165,7 @@ def provision_sql_statements(
         "source_changed_at timestamptz NOT NULL DEFAULT now(),"
         "last_landing_uri text,"
         "last_run_date text,"
+        "last_staging_row_count integer,"
         "updated_at timestamptz NOT NULL DEFAULT now()"
         ")"
     )

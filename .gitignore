@@ -19,6 +19,8 @@ htmlcov/
 coverage.xml
 .env
 .DS_Store
+uv.lock
+
 
 # Local definitions loader checkouts (do not commit cloned repos)
 data/definitions_work/

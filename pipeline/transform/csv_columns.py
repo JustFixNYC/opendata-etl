@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, TextIO
 
@@ -25,6 +26,17 @@ from pipeline.transform.source_schema import unexpected_new_headers
 
 class CsvColumnError(ValueError):
     """Raised when CSV headers cannot be mapped to the table column contract."""
+
+
+@dataclass(frozen=True)
+class StagingProjectionStats:
+    """Row-count and trailer metadata collected during a single projection pass."""
+
+    source_header_count: int
+    source_last_row: tuple[str, ...] | None
+    staging_header_count: int
+    staging_row_count: int
+    staging_last_row: tuple[str, ...] | None
 
 
 def parse_csv_header_row(fh: TextIO) -> list[str]:
@@ -111,8 +123,8 @@ def project_csv_to_staging(
     table_doc: Mapping[str, Any],
     *,
     encoding: str = "utf-8",
-) -> list[str]:
-    """Write a staging CSV with Postgres column names in YAML order; return ``unexpected_new`` headers."""
+) -> tuple[list[str], StagingProjectionStats]:
+    """Write staging CSV; return ``unexpected_new`` headers and scan stats for integrity checks."""
     source_headers = parse_csv_headers(source_path, encoding=encoding)
     new_headers = unexpected_new_headers(source_headers, table_doc)
     name_to_idx = build_source_column_indices(source_headers, table_doc)
@@ -140,7 +152,21 @@ def project_csv_to_staging(
         writer = csv.writer(dst_fh)
         next(reader, None)  # skip source header
         writer.writerow(out_names)
+        staging_row_count = 0
+        source_last_row: list[str] | None = None
+        staging_last_row: list[str] | None = None
         for row in reader:
-            writer.writerow([row[i] if i < len(row) else "" for i in out_indices])
+            source_last_row = row
+            projected = [row[i] if i < len(row) else "" for i in out_indices]
+            writer.writerow(projected)
+            staging_row_count += 1
+            staging_last_row = projected
 
-    return new_headers
+    stats = StagingProjectionStats(
+        source_header_count=len(source_headers),
+        source_last_row=tuple(source_last_row) if source_last_row is not None else None,
+        staging_header_count=len(out_names),
+        staging_row_count=staging_row_count,
+        staging_last_row=tuple(staging_last_row) if staging_last_row is not None else None,
+    )
+    return new_headers, stats
