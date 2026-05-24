@@ -10,9 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from pipeline.credentials import resolve_source_aws
-from pipeline.extract.http import HttpDownloadError, download_bytes
-from pipeline.extract.s3_source import S3SourceReadError, read_s3_object_bytes
+from pipeline.extract.http import HttpDownloadError
+from pipeline.extract.s3_source import S3SourceReadError
 from pipeline.extract.shapefile import (
     Ogr2ogrError,
     discover_shapefile_path,
@@ -34,6 +33,8 @@ class TableStagingResult:
     staging_csv_path: Path
     unexpected_new_headers: tuple[str, ...]
     landing_uri: str | None = None
+    source_unchanged: bool = False
+    source_fingerprint: Any | None = None
 
 
 def _require_source(table_doc: Mapping[str, Any], *, label: str) -> dict[str, Any]:
@@ -49,51 +50,53 @@ def fetch_source_bytes(
     source_credentials: Mapping[str, Any],
     credential_decls: Mapping[str, Any],
     environ: Mapping[str, str] | None = None,
-) -> bytes:
-    """Download or read the raw source payload for ``csv``, ``s3_object``, or ``shapefile`` (zip URL)."""
+    stored_fingerprint: Any | None = None,
+) -> tuple[bytes, Any, bool]:
+    """Download or read the raw source payload.
+
+    Returns ``(bytes, fingerprint, unchanged_via_conditional)``. When ``unchanged_via_conditional``
+    is True the bytes may be empty — callers should reuse prior landing artifacts.
+    """
+    from pipeline.source_fingerprint import download_source_bytes
+
     envmap = environ if environ is not None else os.environ
     stype = source.get("type")
-    if stype == "csv":
-        url = source.get("url")
-        if not isinstance(url, str) or not url.strip():
-            raise ExtractOrchestrationError("csv source requires url")
+    if stype in ("csv", "json", "http", "shapefile", "s3_object"):
         try:
-            return download_bytes(url.strip(), timeout=600.0)
-        except HttpDownloadError as e:
-            raise ExtractOrchestrationError(str(e)) from e
-    if stype == "s3_object":
-        bucket = source.get("bucket")
-        key = source.get("key")
-        cred_name = source.get("credential")
-        if not isinstance(bucket, str) or not isinstance(key, str) or not isinstance(cred_name, str):
-            raise ExtractOrchestrationError("s3_object source requires bucket, key, and credential")
-        decl = credential_decls.get(cred_name)
-        if not isinstance(decl, dict):
-            raise ExtractOrchestrationError(f"unknown source credential {cred_name!r}")
-        try:
-            resolved = resolve_source_aws(cred_name, decl, environ=envmap)
-        except Exception as e:
-            raise ExtractOrchestrationError(f"credential {cred_name!r}: {e}") from e
-        try:
-            return read_s3_object_bytes(
-                bucket=bucket,
-                key=key,
-                resolved=resolved,
-                credential_name=cred_name,
-                credential_decl=decl,
+            return download_source_bytes(
+                source,
+                source_credentials=source_credentials,
+                credential_decls=credential_decls,
+                stored=stored_fingerprint,
                 environ=envmap,
             )
-        except S3SourceReadError as e:
-            raise ExtractOrchestrationError(str(e)) from e
-    if stype == "shapefile":
-        url = source.get("url")
-        if not isinstance(url, str) or not url.strip():
-            raise ExtractOrchestrationError("shapefile source requires url (zip) when not using path-only local hints")
-        try:
-            return download_bytes(url.strip(), timeout=300.0)
-        except HttpDownloadError as e:
+        except ValueError as e:
             raise ExtractOrchestrationError(str(e)) from e
     raise ExtractOrchestrationError(f"unsupported source.type for fetch: {stype!r}")
+
+
+def probe_source_unchanged(
+    source: Mapping[str, Any],
+    *,
+    source_credentials: Mapping[str, Any],
+    credential_decls: Mapping[str, Any],
+    stored_fingerprint: Any | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> tuple[Any, bool]:
+    """HEAD / head_object probe; return ``(current_fingerprint, unchanged)``."""
+    from pipeline.source_fingerprint import fetch_source_fingerprint, fingerprint_unchanged
+
+    envmap = environ if environ is not None else os.environ
+    try:
+        current = fetch_source_fingerprint(
+            source,
+            source_credentials=source_credentials,
+            credential_decls=credential_decls,
+            environ=envmap,
+        )
+    except ValueError as e:
+        raise ExtractOrchestrationError(str(e)) from e
+    return current, fingerprint_unchanged(stored_fingerprint, current)
 
 
 def _write_bytes(path: Path, data: bytes) -> Path:
@@ -143,29 +146,28 @@ def extract_table_to_raw_csv(
     work_dir: Path,
     label: str,
     environ: Mapping[str, str] | None = None,
-) -> Path:
-    """Fetch a table source and return a local CSV path (not yet column-projected)."""
+    stored_fingerprint: Any | None = None,
+) -> tuple[Path, Any, bool]:
+    """Fetch a table source and return ``(raw_csv_path, fingerprint, unchanged)``."""
     source = _require_source(table_doc, label=label)
     stype = source.get("type")
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    if stype in ("csv", "s3_object"):
-        data = fetch_source_bytes(
+    if stype in ("csv", "s3_object", "shapefile"):
+        data, fp, unchanged = fetch_source_bytes(
             source,
             source_credentials=source_credentials,
             credential_decls=credential_decls,
             environ=environ,
+            stored_fingerprint=stored_fingerprint,
         )
+        if unchanged:
+            raw = work_dir / "source_raw.csv"
+            return raw, fp, True
         raw = work_dir / "source_raw.csv"
-        return _write_bytes(raw, data)
-    if stype == "shapefile":
-        data = fetch_source_bytes(
-            source,
-            source_credentials=source_credentials,
-            credential_decls=credential_decls,
-            environ=environ,
-        )
-        return shapefile_zip_to_raw_csv(data, source, work_dir=work_dir, label=label)
+        if stype == "shapefile":
+            return shapefile_zip_to_raw_csv(data, source, work_dir=work_dir, label=label), fp, False
+        return _write_bytes(raw, data), fp, False
     raise ExtractOrchestrationError(f"{label}: unsupported source.type {stype!r}")
 
 
@@ -192,25 +194,37 @@ def extract_table_to_staging(
     work_dir: Path,
     label: str,
     environ: Mapping[str, str] | None = None,
+    stored_fingerprint: Any | None = None,
 ) -> TableStagingResult:
     """Full extract path for one table: fetch → raw CSV → projected staging CSV."""
     tname = table_doc.get("name")
     if not isinstance(tname, str) or not tname:
         raise ExtractOrchestrationError(f"{label}: table needs a string name")
-    raw = extract_table_to_raw_csv(
+    raw, fp, unchanged = extract_table_to_raw_csv(
         table_doc,
         source_credentials=source_credentials,
         credential_decls=credential_decls,
         work_dir=work_dir / tname / "raw",
         label=label,
         environ=environ,
+        stored_fingerprint=stored_fingerprint,
     )
+    if unchanged:
+        return TableStagingResult(
+            table_name=tname,
+            staging_csv_path=raw,
+            unexpected_new_headers=(),
+            source_unchanged=True,
+            source_fingerprint=fp,
+        )
     staging = work_dir / tname / "staging.csv"
     unexpected = project_table_staging_csv(table_doc, raw, staging, label=label)
     return TableStagingResult(
         table_name=tname,
         staging_csv_path=staging,
         unexpected_new_headers=unexpected,
+        source_unchanged=False,
+        source_fingerprint=fp,
     )
 
 

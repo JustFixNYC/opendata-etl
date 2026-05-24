@@ -11,6 +11,11 @@ from pipeline.validation import SchemaValidationError, load_yaml, validate_deplo
 
 PUBLIC_READ_ROLE = "opendata_public_read"
 AUTH_SCHEMA = "opendata_auth"
+OPS_SCHEMA = "opendata_ops"
+
+
+def source_snapshots_table() -> str:
+    return "source_snapshots"
 
 
 def quote_ident(ident: str) -> str:
@@ -137,6 +142,38 @@ def provision_sql_statements(
     )
     stmts.append(f"REVOKE ALL ON TABLE {sch_a}.{tbl_keys} FROM PUBLIC")
     stmts.append(f"ALTER TABLE {sch_a}.{tbl_keys} OWNER TO {owner_q}")
+
+    sch_ops = quote_ident(OPS_SCHEMA)
+    tbl_snap = quote_ident(source_snapshots_table())
+    stmts.append(f"CREATE SCHEMA IF NOT EXISTS {sch_ops}")
+    stmts.append(
+        f"COMMENT ON SCHEMA {sch_ops} IS "
+        "'Operational metadata (source fingerprints, SLA clocks); not readable by public read roles.'"
+    )
+    stmts.append(f"REVOKE ALL ON SCHEMA {sch_ops} FROM PUBLIC")
+    stmts.append(
+        f"CREATE TABLE IF NOT EXISTS {sch_ops}.{tbl_snap} ("
+        "source_key text PRIMARY KEY,"
+        "repo_name text NOT NULL,"
+        "schema_name text NOT NULL,"
+        "dataset_name text NOT NULL,"
+        "table_name text NOT NULL,"
+        "source_type text NOT NULL,"
+        "fingerprint_mode text NOT NULL,"
+        "etag text,"
+        "last_modified timestamptz,"
+        "source_changed_at timestamptz NOT NULL DEFAULT now(),"
+        "last_landing_uri text,"
+        "last_run_date text,"
+        "updated_at timestamptz NOT NULL DEFAULT now()"
+        ")"
+    )
+    stmts.append(
+        f"COMMENT ON TABLE {sch_ops}.{tbl_snap} IS "
+        "'Per-table source ETag/Last-Modified snapshots for extract skip and source SLA checks.'"
+    )
+    stmts.append(f"REVOKE ALL ON TABLE {sch_ops}.{tbl_snap} FROM PUBLIC")
+    stmts.append(f"ALTER TABLE {sch_ops}.{tbl_snap} OWNER TO {owner_q}")
 
     return stmts
 

@@ -21,6 +21,7 @@
       "description": "Cron expression in UTC (passed to orchestration later)."
     },
     "freshness_sla_hours": { "type": "number", "minimum": 0 },
+    "source_freshness_sla_hours": { "type": "number", "minimum": 0 },
     "schema_contract": {
       "type": "string",
       "enum": ["freeze", "evolve"]

@@ -52,6 +52,32 @@ def build_source_s3_client(
     return resolved.session.client("s3", region_name=region, endpoint_url=endpoint_url)
 
 
+def fetch_s3_object_fingerprint(
+    *,
+    bucket: str,
+    key: str,
+    resolved: ResolvedSourceAws,
+    credential_name: str,
+    credential_decl: Mapping[str, Any] | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> str | None:
+    """Return S3 object ETag via ``head_object`` (no body read)."""
+    client = build_source_s3_client(
+        resolved,
+        credential_name=credential_name,
+        credential_decl=credential_decl,
+        environ=environ,
+    )
+    try:
+        resp = client.head_object(Bucket=bucket, Key=key)
+    except Exception as e:
+        raise S3SourceReadError(f"s3://{bucket}/{key} head_object: {e}") from e
+    etag_raw = resp.get("ETag")
+    if isinstance(etag_raw, str) and etag_raw.strip():
+        return etag_raw.strip()
+    return None
+
+
 def read_s3_object_bytes(
     *,
     bucket: str,

@@ -53,11 +53,13 @@ def test_extract_only_does_not_require_database_url(
     fake_staging = MagicMock()
     fake_staging.staging_csv_path = tmp_path / "rows.csv"
     fake_staging.unexpected_new_headers = ()
+    fake_staging.source_unchanged = False
+    fake_staging.source_fingerprint = None
     tmp_path.joinpath("rows.csv").write_text("id\n1\n", encoding="utf-8")
 
     with patch(
-        "pipeline.dataset_materialize.extract_dataset_to_staging",
-        return_value={"rows": fake_staging},
+        "pipeline.dataset_materialize.extract_table_to_staging",
+        return_value=fake_staging,
     ):
         from pipeline.definitions import LoadedDefinitionRepo
 

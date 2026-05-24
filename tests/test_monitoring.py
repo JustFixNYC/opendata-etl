@@ -131,9 +131,12 @@ def test_slack_sensors_empty_without_env(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_slack_sensor_built_when_env_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("dagster_slack")
+    pytest.importorskip("slack_sdk")
     monkeypatch.setenv("OPENDATA_SLACK_TOKEN", "xoxb-test-token")
     monkeypatch.setenv("OPENDATA_SLACK_CHANNEL", "#alerts")
-    from pipeline.notifications import slack_run_failure_sensors
+    from pipeline.notifications import slack_run_failure_sensors, slack_sla_check_sensors
 
     sens = slack_run_failure_sensors()
     assert len(sens) == 1
+    sla_sens = slack_sla_check_sensors()
+    assert len(sla_sens) == 2

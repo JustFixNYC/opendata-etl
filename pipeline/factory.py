@@ -84,6 +84,7 @@ class TableSkeletonSpec:
     """``dataset`` (extract/load) or ``derived`` (Python job → CSV → load)."""
     schedule_cron: str | None = None
     freshness_sla_hours: float | None = None
+    source_freshness_sla_hours: float | None = None
     schema_contract: str | None = None
     dataset_yaml_relpath: str | None = None
 
@@ -359,6 +360,17 @@ def _append_specs_for_asset_group(
     else:
         freshness_sla = None
 
+    raw_source_fresh = doc.get("source_freshness_sla_hours")
+    source_freshness_sla: float | None
+    if isinstance(raw_source_fresh, (int, float)):
+        source_freshness_sla = float(raw_source_fresh)
+        if source_freshness_sla <= 0:
+            raise ValueError(
+                f"{repo.name}: {group_name!r}: source_freshness_sla_hours must be positive when set"
+            )
+    else:
+        source_freshness_sla = None
+
     raw_contract = doc.get("schema_contract")
     schema_contract: str | None
     if isinstance(raw_contract, str) and raw_contract.strip():
@@ -394,6 +406,7 @@ def _append_specs_for_asset_group(
                 asset_kind=asset_kind,
                 schedule_cron=schedule_cron,
                 freshness_sla_hours=freshness_sla,
+                source_freshness_sla_hours=source_freshness_sla,
                 schema_contract=schema_contract,
                 dataset_yaml_relpath=yaml_relpath,
             )
@@ -637,7 +650,7 @@ def dagster_definitions_from_load_result(
 
     from pipeline import monitoring
     from pipeline.derived_context import deployment_profile
-    from pipeline.notifications import slack_run_failure_sensors
+    from pipeline.notifications import slack_run_failure_sensors, slack_sla_check_sensors
 
     specs = collect_table_skeleton_specs(load_result.repos)
     bundle_groups = group_table_skeleton_specs(specs)
@@ -715,6 +728,8 @@ def dagster_definitions_from_load_result(
         unexpected_new_headers: tuple[str, ...] | None = None,
         run_date: str | None = None,
         landing_uri: str | None = None,
+        source_unchanged: bool | None = None,
+        load_skipped: bool | None = None,
     ) -> dict[str, Any]:
         meta: dict[str, Any] = {
             "opendata_kind": MetadataValue.text(kind),
@@ -733,6 +748,10 @@ def dagster_definitions_from_load_result(
             meta["opendata_run_date"] = MetadataValue.text(run_date)
         if landing_uri is not None:
             meta["opendata_landing_uri"] = MetadataValue.text(landing_uri)
+        if source_unchanged is not None:
+            meta["source_unchanged"] = MetadataValue.bool(source_unchanged)
+        if load_skipped is not None:
+            meta["load_skipped"] = MetadataValue.bool(load_skipped)
         return meta
 
     def _make_derived_bundle_compute_fn(group: TableBundleGroup) -> Callable[..., Any]:
@@ -817,6 +836,7 @@ def dagster_definitions_from_load_result(
                     source_credentials=load_result.source_credentials,
                     credential_decls=credential_decls,
                     work_dir=load_result.work_dir,
+                    manifest_path=load_result.manifest_path,
                 )
             except MaterializeError as e:
                 raise RuntimeError(str(e)) from e
@@ -834,6 +854,7 @@ def dagster_definitions_from_load_result(
                         unexpected_new_headers=result.unexpected_new_headers,
                         run_date=result.run_date,
                         landing_uri=landing_text,
+                        source_unchanged=result.source_unchanged,
                     ),
                 )
 
@@ -877,6 +898,7 @@ def dagster_definitions_from_load_result(
             table_landing: dict[str, str | Path] = {}
             run_date: str | None = None
             unexpected_by_table: dict[str, tuple[str, ...]] = {}
+            skip_tables: set[str] = set()
             for s in group.specs:
                 extract_key = AssetKey(list(_dataset_phase_key(s, DATASET_PHASE_EXTRACT)))
                 meta = _read_materialization_metadata(context, extract_key)
@@ -905,8 +927,31 @@ def dagster_definitions_from_load_result(
                 raw_unexpected = meta.get("unexpected_new_headers")
                 if isinstance(raw_unexpected, list):
                     unexpected_by_table[s.table_name] = tuple(str(x) for x in raw_unexpected)
+                if meta.get("source_unchanged") is True:
+                    skip_tables.add(s.table_name)
 
             assert run_date is not None
+            all_skipped = len(skip_tables) == len(group.specs)
+            if all_skipped:
+                for s in group.specs:
+                    key = _dataset_phase_key(s, DATASET_PHASE_LOAD)
+                    yield MaterializeResult(
+                        asset_key=AssetKey(list(key)),
+                        metadata=_materialize_result_metadata(
+                            s,
+                            kind="load_swap",
+                            phase=DATASET_PHASE_LOAD,
+                            run_date=run_date,
+                            source_unchanged=True,
+                            load_skipped=True,
+                        ),
+                    )
+                return
+            if skip_tables:
+                raise RuntimeError(
+                    f"{group.group_name}: partial source_unchanged across tables is unsupported; "
+                    "all tables in a dataset must share the same extract outcome for load."
+                )
             try:
                 results = load_dataset_bundle_from_landing(
                     repo=repo,
@@ -956,25 +1001,73 @@ def dagster_definitions_from_load_result(
 
     def _make_freshness_sla_check(s: TableSkeletonSpec, asset_key: AssetKey) -> Any:
         sla_hours = float(s.freshness_sla_hours or 0.0)
-        key_list = list(asset_key.parts)
 
         @asset_check(asset=asset_key, name="freshness_sla_hours")
         def _freshness_sla_check(context):
             ev = context.instance.get_latest_materialization_event(asset_key)
-            if ev is None:
-                ts = None
-            else:
+            meta: dict[str, Any] = {}
+            ts = None
+            if ev is not None:
                 ts = getattr(ev, "timestamp", None)
                 if ts is None and hasattr(ev, "event_log_entry"):
                     ts = ev.event_log_entry.timestamp
-            return monitoring.freshness_sla_asset_check_result(
+                meta = _read_materialization_metadata(context, asset_key)
+            return monitoring.pipeline_freshness_sla_asset_check_result(
                 latest_materialization_timestamp=ts,
+                latest_materialization_metadata=meta,
                 sla_hours=sla_hours,
                 now=monitoring.utc_now(),
             )
 
         _freshness_sla_check.__name__ = f"opendata_sla_check__{python_fn_name_for_table_asset(s)}"
         return _freshness_sla_check
+
+    def _make_source_freshness_sla_check(s: TableSkeletonSpec, extract_key: AssetKey) -> Any:
+        sla_hours = float(s.source_freshness_sla_hours or 0.0)
+
+        @asset_check(asset=extract_key, name="source_freshness_sla_hours")
+        def _source_freshness_sla_check(context):
+            dsn = (os.environ.get("DATABASE_URL") or "").strip()
+            if not dsn:
+                return AssetCheckResult(
+                    passed=True,
+                    description="DATABASE_URL unset; source_freshness_sla_hours check skipped locally.",
+                )
+            from pipeline.source_fingerprint import source_key_for_table
+            from pipeline.source_snapshots import get_source_snapshot
+
+            try:
+                import psycopg
+            except ImportError:  # pragma: no cover
+                return AssetCheckResult(
+                    passed=True,
+                    description="psycopg unavailable; source SLA check skipped.",
+                )
+            sk = source_key_for_table(
+                repo_name=s.repo_name,
+                schema=s.schema,
+                dataset_name=s.dataset_name,
+                table_name=s.table_name,
+            )
+            try:
+                with psycopg.connect(dsn) as conn:
+                    row = get_source_snapshot(conn, sk)
+            except Exception as e:
+                return AssetCheckResult(
+                    passed=False,
+                    severity=AssetCheckSeverity.WARN,
+                    description=f"Could not read source snapshot for {sk!r}: {e}",
+                )
+            return monitoring.source_freshness_sla_asset_check_result(
+                source_changed_at=row.source_changed_at if row is not None else None,
+                sla_hours=sla_hours,
+                now=monitoring.utc_now(),
+            )
+
+        _source_freshness_sla_check.__name__ = (
+            f"opendata_source_sla_check__{python_fn_name_for_table_asset(s)}"
+        )
+        return _source_freshness_sla_check
 
     def _make_unexpected_new_check(s: TableSkeletonSpec, asset_key: AssetKey) -> Any:
         dataset_label = f"{s.repo_name}/{s.dataset_yaml_relpath or s.dataset_name}"
@@ -1178,6 +1271,8 @@ def dagster_definitions_from_load_result(
             asset_checks.append(_make_extract_landing_check(spec, load_ak))
             if spec.freshness_sla_hours is not None:
                 asset_checks.append(_make_freshness_sla_check(spec, load_ak))
+            if spec.source_freshness_sla_hours is not None:
+                asset_checks.append(_make_source_freshness_sla_check(spec, extract_ak))
 
     from pipeline.opendata_dbt import collect_dbt_assets_and_resources
 
@@ -1244,7 +1339,7 @@ def dagster_definitions_from_load_result(
             )
         )
 
-    sensors = slack_run_failure_sensors()
+    sensors = slack_run_failure_sensors() + slack_sla_check_sensors()
 
     defs_kw: dict[str, Any] = {"assets": assets}
     if schedules:

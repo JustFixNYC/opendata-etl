@@ -12,7 +12,7 @@ are implemented — this step only documents the contract and attaches declarati
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 from dagster import AssetCheckResult, AssetCheckSeverity, FreshnessPolicy
 
@@ -77,6 +77,66 @@ def freshness_sla_asset_check_result(
             ),
         )
     return AssetCheckResult(passed=True, description="Within freshness_sla_hours window.")
+
+
+def pipeline_freshness_sla_asset_check_result(
+    *,
+    latest_materialization_timestamp: float | None,
+    latest_materialization_metadata: Mapping[str, object] | None,
+    sla_hours: float,
+    now: datetime,
+) -> AssetCheckResult:
+    """Pipeline SLA since last successful load; passes when load was intentionally skipped."""
+    meta = latest_materialization_metadata or {}
+    if meta.get("source_unchanged") is True or meta.get("load_skipped") is True:
+        return AssetCheckResult(
+            passed=True,
+            description=(
+                "Load skipped because source unchanged; pipeline freshness_sla_hours does not apply."
+            ),
+        )
+    return freshness_sla_asset_check_result(
+        latest_materialization_timestamp=latest_materialization_timestamp,
+        sla_hours=sla_hours,
+        now=now,
+    )
+
+
+def source_freshness_sla_asset_check_result(
+    *,
+    source_changed_at: datetime | None,
+    sla_hours: float,
+    now: datetime,
+) -> AssetCheckResult:
+    """Source SLA since the upstream portal last published new data."""
+    sla = timedelta(hours=float(sla_hours))
+    if source_changed_at is None:
+        return AssetCheckResult(
+            passed=False,
+            severity=AssetCheckSeverity.WARN,
+            description=(
+                "No source_changed_at recorded yet; source_freshness_sla_hours cannot be evaluated."
+            ),
+        )
+    changed = source_changed_at
+    if changed.tzinfo is None:
+        changed = changed.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    age = now - changed
+    if age > sla:
+        return AssetCheckResult(
+            passed=False,
+            severity=AssetCheckSeverity.WARN,
+            description=(
+                f"Source last changed {age.total_seconds() / 3600.0:.1f}h ago; "
+                f"source_freshness_sla_hours is {sla_hours:g}h (source late — portal may not have updated)."
+            ),
+        )
+    return AssetCheckResult(
+        passed=True,
+        description="Within source_freshness_sla_hours since source last changed.",
+    )
 
 
 def unexpected_new_headers_asset_check_result(

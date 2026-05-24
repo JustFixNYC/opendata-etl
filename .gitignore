@@ -8,6 +8,7 @@ build/
 site/
 .venv/
 .venv-ci/
+.venv*/
 venv/
 .pytest_cache/
 .pytest_git_probe*/
