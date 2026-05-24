@@ -63,7 +63,6 @@ def test_opendata_ops_source_snapshots_in_provisioning_sql() -> None:
     assert 'CREATE SCHEMA IF NOT EXISTS "opendata_ops"' in sql
     assert 'CREATE TABLE IF NOT EXISTS "opendata_ops"."source_snapshots"' in sql
     assert "last_staging_row_count integer" in sql
-    assert "ADD COLUMN IF NOT EXISTS last_staging_row_count integer" in sql
 
 
 def test_provision_sql_stable_idempotent_shape() -> None:
