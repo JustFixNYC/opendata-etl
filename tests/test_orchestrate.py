@@ -16,26 +16,38 @@ from pipeline.extract.orchestrate import (
     shapefile_zip_to_raw_csv,
 )
 from pipeline.extract.shapefile import discover_shapefile_path
+from pipeline.source_fingerprint import SourceFingerprint
 from pipeline.transform.csv_columns import parse_csv_headers
+
+
+def _csv_fingerprint() -> SourceFingerprint:
+    return SourceFingerprint(mode="http_etag_lm", etag='"fixture"', last_modified=None)
 
 
 def test_fetch_csv_source_downloads(tmp_path: Path) -> None:
     body = b"col_a,col_b\n1,2\n"
-    with patch("pipeline.extract.orchestrate.download_bytes", return_value=body):
-        out = fetch_source_bytes(
+    fp = _csv_fingerprint()
+    with patch(
+        "pipeline.source_fingerprint.download_source_bytes",
+        return_value=(body, fp, False),
+    ):
+        data, out_fp, unchanged = fetch_source_bytes(
             {"type": "csv", "url": "https://example.invalid/x.csv"},
             source_credentials={},
             credential_decls={},
         )
-    assert out == body
+    assert data == body
+    assert out_fp == fp
+    assert unchanged is False
 
 
 def test_fetch_s3_unsigned(monkeypatch: pytest.MonkeyPatch) -> None:
+    fp = SourceFingerprint(mode="s3_etag", etag='"etag-1"', last_modified=None)
     monkeypatch.setattr(
-        "pipeline.extract.orchestrate.read_s3_object_bytes",
-        lambda **kw: b"h1\n1\n",
+        "pipeline.source_fingerprint.download_source_bytes",
+        lambda *a, **kw: (b"h1\n1\n", fp, False),
     )
-    out = fetch_source_bytes(
+    data, out_fp, unchanged = fetch_source_bytes(
         {
             "type": "s3_object",
             "bucket": "justfix-data",
@@ -45,7 +57,9 @@ def test_fetch_s3_unsigned(monkeypatch: pytest.MonkeyPatch) -> None:
         source_credentials={},
         credential_decls={"justfix_data_public": {"kind": "none"}},
     )
-    assert out.startswith(b"h")
+    assert data.startswith(b"h")
+    assert out_fp == fp
+    assert unchanged is False
 
 
 def test_discover_shapefile_with_path_hint(tmp_path: Path) -> None:
@@ -96,7 +110,11 @@ def test_extract_table_csv_projection(tmp_path: Path) -> None:
         ],
     }
     raw = b"id,msg\n10,hello\n"
-    with patch("pipeline.extract.orchestrate.download_bytes", return_value=raw):
+    fp = _csv_fingerprint()
+    with patch(
+        "pipeline.source_fingerprint.download_source_bytes",
+        return_value=(raw, fp, False),
+    ):
         result = extract_table_to_staging(
             table,
             source_credentials={},
@@ -109,10 +127,25 @@ def test_extract_table_csv_projection(tmp_path: Path) -> None:
     assert headers == ["id", "msg"]
 
 
-def test_extract_unsupported_type_raises() -> None:
+def test_fetch_unsupported_type_raises() -> None:
     with pytest.raises(ExtractOrchestrationError, match="unsupported"):
         fetch_source_bytes(
-            {"type": "json", "url": "https://example.invalid/x.json"},
+            {"type": "unknown_type", "url": "https://example.invalid/x"},
             source_credentials={},
             credential_decls={},
+        )
+
+
+def test_extract_unsupported_type_raises() -> None:
+    with pytest.raises(ExtractOrchestrationError, match="unsupported"):
+        extract_table_to_staging(
+            {
+                "name": "rows",
+                "source": {"type": "json", "url": "https://example.invalid/x.json"},
+                "columns": [{"name": "id", "type": "bigint"}],
+            },
+            source_credentials={},
+            credential_decls={},
+            work_dir=Path("/tmp/unused_extract_test"),
+            label="demo/rows",
         )
