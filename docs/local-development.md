@@ -23,8 +23,11 @@ Services:
 | `postgres`   | PostgreSQL 16 + PostGIS (`postgis/postgis:16-3.4`). |
 | `minio`      | S3-compatible landing zone. Console on host port `MINIO_CONSOLE_PORT` (default 9001). |
 | `minio-init` | One-shot init: creates `S3_BUCKET` (default `opendata-landing`) via `mc mb --ignore-existing`. |
+| `provision`  | One-shot init: `scripts/provision_roles.py` for schemas, read roles, and `opendata_auth` from `OPENDATA_DEFINITIONS_MANIFEST_PATH`. |
 | `dagster`    | `dagster dev` with skeleton dataset assets from `pipeline.factory` (`pipeline.dagster_defs`). |
 | `api`        | FastAPI read-only API: YAML-driven routes from loaded definition repos (Step 10); query execution is stubbed until Step 11. |
+
+`dagster` and `api` start only after `minio-init` and `provision` exit successfully.
 
 **Blockers / placeholders (Step 4+):**
 
@@ -43,7 +46,8 @@ Copy `.env.example` to `.env` and adjust. Compose injects paths used by later st
 - **Dagster monitoring (Step 12) and split extract/load (Step 21):** Optional dataset YAML ``schedule`` becomes **two stopped-by-default** schedules per dataset — **extract** (daytime) and **load** (overnight on ``profile: standard``). Asset keys are five segments for datasets: ``{repo}/{schema}/{dataset}/extract/{table}`` and ``…/load/{table}``; derived jobs keep four segments. On ``standard`` / ``scaled``, extract runs at **10:00** and load at **02:00** ``America/New_York`` (outside / inside the **22:00–07:00** NYC window). ``lite`` keeps the YAML cron for extract (UTC) and uses **07:00 UTC** for load. ``freshness_sla_hours`` applies to **load** outputs; ``extract_landing_exists`` checks run before load. **Slack:** set ``OPENDATA_SLACK_TOKEN`` and ``OPENDATA_SLACK_CHANNEL`` to register a run-failure sensor (still **stopped** until enabled in the UI); leave unset for local Compose. See ``pipeline/notifications.py`` and ``.env.example``.
 
 **Cross-schema reads (dbt and SQL):** `depends_on` in `definitions.yml` orders repos only. Database `SELECT` on another repo’s schema requires **`cross_repo_grants`** with `access: read` on the foreign `schema`; `scripts/provision_roles.py` applies those grants to each repo’s `opendata_<schema>_read` role. If dbt runs as the table owner (`DATABASE_URL` in dev), Postgres already allows reads; if you introduce a dedicated dbt login later, grant it the same way provision grants read roles (and document the role alongside `cross_repo_grants`).
-- `DATABASE_URL`, `S3_*` — consumed by future loaders/API; defaults match local Compose service names.
+- `DATABASE_URL` — for **host-side** Python/Dagster use `127.0.0.1` (see `.env.example`). Compose `provision` / `dagster` / `api` always connect to hostname `postgres` inside the network (they do not inherit host `DATABASE_URL` from `.env`).
+- `S3_*` — consumed by loaders/API; defaults match local Compose service names (`minio` hostname in-container).
 
 ## Pinned refs and `definitions.yml`
 
@@ -96,7 +100,11 @@ Notes:
 
 ## Postgres schema and roles (Step 5)
 
-From the repo root, with Compose Postgres listening on the host (default port 5432):
+**Compose (default):** a full `docker compose up` runs the `provision` init service after Postgres is healthy. It executes `scripts/provision_roles.py` against `OPENDATA_DEFINITIONS_MANIFEST_PATH` (default `examples/definitions.local.yml` in the image). No separate provisioning step is required for `dagster` / `api` to start.
+
+Optional: set `OPENDATA_COMPOSE_PROVISION_LOAD_REPOS=1` in `.env` to pass `--load-repos` (clone manifest repos and apply `sql/functions/*.sql`). Off by default so local examples do not require private git remotes.
+
+**Host-only Postgres or custom manifests:** from the repo root, with Compose Postgres listening on the host (default port 5432):
 
 ```bash
 docker compose up -d postgres
