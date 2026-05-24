@@ -45,7 +45,7 @@ services:
       start_period: 10s
 
   minio-init:
-    image: minio/mc:RELEASE.2024-10-29T16-00-45Z
+    image: minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
@@ -60,6 +60,35 @@ services:
         set -e
         mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
         mc mb --ignore-existing "local/$$S3_BUCKET"
+    restart: "no"
+
+  provision:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${OPENDATA_IMAGE_NAME:-opendata-etl:local}
+    working_dir: /workspace
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://opendata:opendata@postgres:5432/opendata}
+      OPENDATA_DEFINITIONS_MANIFEST_PATH: ${OPENDATA_DEFINITIONS_MANIFEST_PATH:-/workspace/examples/definitions.local.yml}
+      OPENDATA_DEFINITIONS_WORK_DIR: ${OPENDATA_DEFINITIONS_WORK_DIR:-/workspace/data/definitions_work}
+      OPENDATA_PG_OWNER_ROLE: ${OPENDATA_PG_OWNER_ROLE:-opendata}
+      OPENDATA_COMPOSE_PROVISION_LOAD_REPOS: ${OPENDATA_COMPOSE_PROVISION_LOAD_REPOS:-0}
+    volumes:
+      - definitions_work:/workspace/data/definitions_work
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        EXTRA=
+        if [ "$$OPENDATA_COMPOSE_PROVISION_LOAD_REPOS" = "1" ]; then
+          EXTRA=--load-repos
+        fi
+        exec python3 scripts/provision_roles.py --manifest "$$OPENDATA_DEFINITIONS_MANIFEST_PATH" $$EXTRA
     restart: "no"
 
   dagster:
@@ -106,6 +135,8 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      provision:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -fsSL http://127.0.0.1:3000/ >/dev/null || exit 1"]
       interval: 15s
@@ -138,6 +169,8 @@ services:
       postgres:
         condition: service_healthy
       minio-init:
+        condition: service_completed_successfully
+      provision:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/healthz"]
