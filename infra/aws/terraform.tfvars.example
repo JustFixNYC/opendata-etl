@@ -22,6 +22,11 @@ landing_bucket_force_destroy  = true # ephemeral POC only; false in long-lived e
 create_orchestrator_instance = true
 create_api_instance          = true # split FastAPI host (standard profile POC)
 
+# Orchestrator bootstrap (Step 26f): defaults use s3://<landing>/config/...
+# orchestrator_runtime_bundle_s3_uri = "s3://my-bucket/config/orchestrator-runtime.tar.gz"
+# orchestrator_manifest_s3_uri       = "s3://my-bucket/config/definitions.yml"
+# orchestrator_framework_image       = "123456789012.dkr.ecr.us-east-1.amazonaws.com/opendata-etl-poc/framework:poc"
+
 # --- Production-sized example (uncomment and adjust) ---
 # environment               = "prod"
 # postgres_instance_class   = "db.r6g.large"

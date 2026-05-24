@@ -1,0 +1,28 @@
+# Standard-profile orchestrator host (one service per EC2).
+# Packaged by scripts/build-runtime-bundle.sh — no definitions*.yml in the tarball.
+# Manifest is downloaded separately at boot (see README-automation.md).
+
+services:
+  dagster:
+    image: ${OPENDATA_FRAMEWORK_IMAGE:?set OPENDATA_FRAMEWORK_IMAGE in .env}
+    container_name: dagster
+    restart: unless-stopped
+    env_file:
+      - .env
+    command:
+      [
+        "dagster",
+        "dev",
+        "-h",
+        "0.0.0.0",
+        "-p",
+        "3000",
+        "-m",
+        "pipeline.dagster_defs",
+      ]
+    ports:
+      - "3000:3000"
+    volumes:
+      - /var/lib/opendata-etl:/var/lib/opendata-etl
+      - ./definitions.yml:/opt/opendata-etl/definitions.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock

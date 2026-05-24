@@ -67,6 +67,21 @@ output "standard_runtime_env_ssm" {
   value       = "${local.ssm_prefix}/runtime/standard_env"
 }
 
+output "orchestrator_runtime_bundle_s3_uri" {
+  description = "S3 URI used by orchestrator user_data for the runtime tarball."
+  value       = local.orchestrator_runtime_bundle_s3_uri
+}
+
+output "orchestrator_manifest_s3_uri" {
+  description = "S3 URI used by orchestrator user_data for definitions.yml."
+  value       = local.orchestrator_manifest_s3_uri
+}
+
+output "orchestrator_framework_image" {
+  description = "Container image reference used by orchestrator user_data."
+  value       = local.orchestrator_framework_image
+}
+
 output "smoke_check_commands" {
   description = "Post-apply smoke commands (run from a host with AWS CLI and SSM plugin)."
   value       = <<-EOT

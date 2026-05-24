@@ -119,6 +119,24 @@ variable "orchestrator_instance_type" {
   default     = "t3.large"
 }
 
+variable "orchestrator_runtime_bundle_s3_uri" {
+  type        = string
+  description = "S3 URI of orchestrator runtime tarball (compose + env template only). Empty = landing bucket config/orchestrator-runtime.tar.gz."
+  default     = ""
+}
+
+variable "orchestrator_manifest_s3_uri" {
+  type        = string
+  description = "S3 URI of definitions manifest (separate from runtime bundle). Empty = landing bucket config/definitions.yml."
+  default     = ""
+}
+
+variable "orchestrator_framework_image" {
+  type        = string
+  description = "Full ECR/GHCR image reference including tag. Empty = ecr_framework_repository_url:poc."
+  default     = ""
+}
+
 variable "create_api_instance" {
   type        = bool
   description = "Provision a reference EC2 API host (split from orchestrator)."

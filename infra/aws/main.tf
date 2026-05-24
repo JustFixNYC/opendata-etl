@@ -74,6 +74,16 @@ module "orchestrator" {
   subnet_id               = module.network.private_subnet_ids[0]
   security_group_id       = module.security_groups.orchestrator_security_group_id
   instance_profile_name   = module.iam.orchestrator_instance_profile_name
+  aws_region              = var.aws_region
+  runtime_bundle_s3_uri   = local.orchestrator_runtime_bundle_s3_uri
+  manifest_s3_uri         = local.orchestrator_manifest_s3_uri
+  framework_image         = local.orchestrator_framework_image
+  ecr_registry            = local.orchestrator_ecr_registry
+  standard_env_ssm        = "${local.ssm_prefix}/runtime/standard_env"
+  master_password_ssm     = module.postgres_rds.master_password_ssm_parameter
+  db_user                 = var.postgres_master_username
+  db_endpoint             = module.postgres_rds.instance_endpoint
+  db_name                 = var.postgres_database_name
 }
 
 module "api_host" {

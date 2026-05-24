@@ -158,6 +158,53 @@ Build and push **derived** images per definition repo when you enable `derived_p
 
 ## Part 6 — Orchestrator EC2 (Dagster)
 
+### Automated bootstrap (Step 26f, recommended)
+
+The reference orchestrator EC2 **user_data** installs Docker, pulls a **runtime tarball** and a **separate manifest** from S3, builds `.env` from SSM, and runs `docker compose -f orchestrator-compose.yml up -d`. No manual `docker run` on the instance.
+
+**Prerequisites:** Part 3 (`terraform apply`) and Part 5 (framework image `:poc` in ECR).
+
+**1. Upload runtime bundle + manifest** (two objects; manifest is not in the tarball):
+
+```bash
+cd /path/to/opendata-etl
+./scripts/build-runtime-bundle.sh /tmp/orchestrator-runtime.tar.gz
+
+cd infra/aws
+aws s3 cp /tmp/orchestrator-runtime.tar.gz "$(terraform output -raw orchestrator_runtime_bundle_s3_uri)"
+aws s3 cp ../../examples/definitions.poc.yml "$(terraform output -raw orchestrator_manifest_s3_uri)"
+```
+
+Defaults (when `orchestrator_*_s3_uri` tfvars are empty):
+
+- `s3://<landing_bucket>/config/orchestrator-runtime.tar.gz`
+- `s3://<landing_bucket>/config/definitions.yml`
+
+Override URIs in `terraform.tfvars` or use a test bucket — see [`examples/deployment-repo/README-automation.md`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/deployment-repo/README-automation.md).
+
+**2. Launch or refresh the instance** — upload **before** first boot when possible. If the instance already started without S3 objects:
+
+```bash
+terraform apply -replace='module.orchestrator.aws_instance.orchestrator[0]'
+```
+
+**3. Verify on the instance:**
+
+```bash
+ORCH_ID=$(terraform output -raw orchestrator_instance_id)
+aws ssm start-session --target "$ORCH_ID"
+sudo tail -50 /var/log/opendata-orchestrator-bootstrap.log
+sudo docker ps
+```
+
+Dagster UI: SSM port forward to port **3000** (see [Materialize POC assets](#materialize-poc-assets-orchestrator) below).
+
+Terraform outputs: `orchestrator_runtime_bundle_s3_uri`, `orchestrator_manifest_s3_uri`, `orchestrator_framework_image`.
+
+### Manual bootstrap (fallback)
+
+Use this path if you need to debug without S3/compose, or on instances created before Step 26f.
+
 ```bash
 ORCH_ID=$(terraform output -raw orchestrator_instance_id)
 aws ssm start-session --target "$ORCH_ID"

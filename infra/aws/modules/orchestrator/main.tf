@@ -36,19 +36,20 @@ resource "aws_instance" "orchestrator" {
     encrypted   = true
   }
 
-  user_data = <<-EOT
-    #!/bin/bash
-    set -euo pipefail
-    dnf install -y docker
-    systemctl enable --now docker
-    usermod -aG docker ssm-user || true
-    mkdir -p /opt/opendata-etl
-    cat >/opt/opendata-etl/README.txt <<'NOTE'
-    Reference Dagster orchestrator (EC2). Install the framework image from ECR and run
-    dagster-webserver + dagster-daemon per docs/deployment/aws-scaled.md and
-    docs/deployment/aws-database-access.md (SSM port forward for RDS).
-    NOTE
-  EOT
+  user_data_replace_on_change = true
+
+  user_data = base64encode(templatefile("${path.module}/user_data.sh.tpl", {
+    aws_region            = var.aws_region
+    runtime_bundle_s3_uri = var.runtime_bundle_s3_uri
+    manifest_s3_uri       = var.manifest_s3_uri
+    framework_image       = var.framework_image
+    ecr_registry          = var.ecr_registry
+    standard_env_ssm      = var.standard_env_ssm
+    master_password_ssm   = var.master_password_ssm
+    db_user               = var.db_user
+    db_endpoint           = var.db_endpoint
+    db_name               = var.db_name
+  }))
 
   tags = {
     Name = "${var.name_prefix}-orchestrator"
