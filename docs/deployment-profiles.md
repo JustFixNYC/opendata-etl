@@ -2,7 +2,7 @@
 
 Deployments declare a **`profile`** on `definitions.yml` (JSON Schema: `lite` | `standard` | `scaled`). The profile selects how extract, derived jobs, and load run.
 
-**JustFix parallel POC** uses **`standard`** only. OSS adopters should use **`lite`** unless they operate their own AWS stack.
+Most contributors should use **`lite`**. Operators who run the AWS reference stack should use **`standard`** from a deployment repo.
 
 ## Comparison
 
@@ -10,15 +10,15 @@ Deployments declare a **`profile`** on `definitions.yml` (JSON Schema: `lite` | 
 |---------|------------|---------|--------------|------|
 | `lite` | Single Docker Compose host | In-process on orchestrator | `OPENDATA_DERIVED_RUNNER=local` or `docker` on same host | COPY from local CSV (`copy_local`) |
 | `standard` | **Split EC2** orchestrator + API + **RDS PostgreSQL** + **S3** (no EKS) | In-process + S3 landing; daytime **extract** assets | `OPENDATA_DERIVED_RUNNER=docker` on orchestrator | Server-side COPY (`s3_copy_rds`); overnight **load** assets |
-| `scaled` | Aurora + S3 + EKS + split services (**archived** for JustFix) | EKS Jobs (archived) | EKS Jobs (archived) | `s3_copy_rds` |
+| `scaled` | Aurora + S3 + EKS + split services (archived reference) | EKS Jobs (archived) | EKS Jobs (archived) | `s3_copy_rds` |
 
 When `profile` is omitted, the framework treats the deployment as **`lite`**.
 
-## Standard profile (JustFix POC)
+## Standard profile
 
-**Infrastructure:** [`infra/aws/`](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md) — RDS PostgreSQL 16 (`db.t4g.medium` POC default), S3 landing, EC2 orchestrator + EC2 API, ECR, SSM secrets.
+**Infrastructure:** `infra/aws/` is the framework reference module. Apply it from an operator deployment repo by pinning a framework release tag.
 
-**Manifest:** [`examples/definitions.poc.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.poc.yml) — `profile: standard` with a subset of `enabled_datasets` for validation.
+**Manifest:** keep `definitions.poc.yml` / `definitions.prod.yml` in the deployment repo. Framework `examples/definitions.poc.yml` is fixture-only and exists for validation.
 
 **Environment defaults** (orchestrator; also written to SSM `{prefix}/runtime/standard_env` after `terraform apply`):
 
@@ -42,10 +42,11 @@ When `profile` is omitted, the framework treats the deployment as **`lite`**.
 - [RDS S3 COPY bootstrap](deployment/aws-s3-copy-bootstrap.md)
 - [Database access via SSM](deployment/aws-database-access.md)
 - [Components explained](deployment/aws-components.md) — read RDS/S3/EC2 sections; Aurora/EKS sections are historical
+- [Deployment repositories](deployment-repositories.md)
 
 ## Lite quick start
 
-1. Copy `examples/definitions.local.yml` (includes `profile: lite`).
+1. For framework development, use `examples/definitions.local.yml` with the root `docker-compose.yml` (`build: .`). For an operated lite deployment, copy `examples/deployment-repo/` and use its pinned-image `docker-compose.yml`.
 2. Start the stack:
 
    ```bash
@@ -65,9 +66,9 @@ Derived CSVs land under `data/definitions_work/derived_runs/{repo}/{job}/{run_id
 
 With `OPENDATA_LANDING_BACKEND=s3`, objects use `s3://{S3_BUCKET}/derived/{repo}/{job}/{run_id}/{table}.csv`; extract staging uses `s3://{S3_BUCKET}/extract/{dataset}/{date}/{table}.csv`.
 
-## Scaled profile (archived for JustFix)
+## Scaled profile (archived)
 
-`profile: scaled` in [`examples/definitions.prod.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.prod.yml) illustrated Aurora + EKS. Active Terraform for JustFix is **19b (RDS, no EKS)**. OSS teams may still use archived modules under `infra/aws/_archived/`.
+`profile: scaled` is retained as an archived EKS-oriented reference. Active AWS docs focus on `standard` (RDS, S3, EC2 orchestrator, split API host). Teams may still inspect archived modules under `infra/aws/_archived/`.
 
 - [AWS scaled overview](deployment/aws-scaled.md) — historical EKS path
 - [DigitalOcean mapping](deployment/digitalocean-scaled.md) — documentation only

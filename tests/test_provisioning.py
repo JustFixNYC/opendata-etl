@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_ordered_entries_prod_fixture() -> None:
     deployment = load_deployment_manifest(REPO_ROOT / "examples" / "definitions.prod.yml")
     ordered = ordered_deployment_definition_entries(deployment)
-    assert [str(e["name"]) for e in ordered] == ["nycdb2", "derived_reports"]
+    assert [str(e["name"]) for e in ordered] == ["example_collection", "protected_reports"]
 
 
 def test_read_role_naming() -> None:
@@ -33,16 +33,16 @@ def test_read_role_naming() -> None:
 def test_public_read_grants_only_unprotected_schemas() -> None:
     deployment = load_deployment_manifest(REPO_ROOT / "examples" / "definitions.prod.yml")
     sql = "\n".join(provision_sql_statements(deployment))
-    assert 'GRANT "opendata_nyc_housing_read" TO "opendata_public_read"' in sql
-    assert 'REVOKE "opendata_nyc_reports_read" FROM "opendata_public_read"' in sql
-    assert 'GRANT "opendata_nyc_reports_read" TO "opendata_public_read"' not in sql
+    assert 'GRANT "opendata_ex_housing_read" TO "opendata_public_read"' in sql
+    assert 'REVOKE "opendata_ex_reports_read" FROM "opendata_public_read"' in sql
+    assert 'GRANT "opendata_ex_reports_read" TO "opendata_public_read"' not in sql
 
 
 def test_cross_repo_grants_in_sql() -> None:
     deployment = load_deployment_manifest(REPO_ROOT / "examples" / "definitions.prod.yml")
     sql = "\n".join(provision_sql_statements(deployment))
-    assert 'GRANT USAGE ON SCHEMA "nyc_housing" TO "opendata_nyc_reports_read"' in sql
-    assert 'GRANT SELECT ON ALL TABLES IN SCHEMA "nyc_housing" TO "opendata_nyc_reports_read"' in sql
+    assert 'GRANT USAGE ON SCHEMA "ex_housing" TO "opendata_ex_reports_read"' in sql
+    assert 'GRANT SELECT ON ALL TABLES IN SCHEMA "ex_housing" TO "opendata_ex_reports_read"' in sql
 
 
 def test_opendata_auth_schema_present() -> None:
@@ -100,12 +100,12 @@ def test_live_postgres_public_read_cannot_select_protected_schema() -> None:
     import psycopg
 
     with psycopg.connect(dsn) as conn:
-        conn.execute('CREATE TABLE IF NOT EXISTS "nyc_housing"."probe_pub" (id int)')
-        conn.execute('CREATE TABLE IF NOT EXISTS "nyc_reports"."probe_prot" (id int)')
+        conn.execute('CREATE TABLE IF NOT EXISTS "ex_housing"."probe_pub" (id int)')
+        conn.execute('CREATE TABLE IF NOT EXISTS "ex_reports"."probe_prot" (id int)')
         conn.commit()
 
     with psycopg.connect(dsn) as conn:
         conn.execute(f'SET ROLE "{PUBLIC_READ_ROLE}"')
-        conn.execute('SELECT 1 FROM "nyc_housing"."probe_pub" LIMIT 1')
+        conn.execute('SELECT 1 FROM "ex_housing"."probe_pub" LIMIT 1')
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
-            conn.execute('SELECT 1 FROM "nyc_reports"."probe_prot" LIMIT 1')
+            conn.execute('SELECT 1 FROM "ex_reports"."probe_prot" LIMIT 1')

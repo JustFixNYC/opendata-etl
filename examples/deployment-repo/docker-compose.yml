@@ -1,0 +1,141 @@
+name: opendata-etl-deployment
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opendata}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opendata}
+      POSTGRES_DB: ${POSTGRES_DB:-opendata}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opendata} -d ${POSTGRES_DB:-opendata}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-29T16-01-48Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-opendata-landing}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+    restart: "no"
+
+  provision:
+    image: ${OPENDATA_FRAMEWORK_IMAGE:?set OPENDATA_FRAMEWORK_IMAGE in .env}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-opendata}:${POSTGRES_PASSWORD:-opendata}@postgres:5432/${POSTGRES_DB:-opendata}
+      OPENDATA_DEFINITIONS_MANIFEST_PATH: /workspace/definitions.yml
+      OPENDATA_DEFINITIONS_WORK_DIR: /workspace/data/definitions_work
+      OPENDATA_PG_OWNER_ROLE: ${OPENDATA_PG_OWNER_ROLE:-opendata}
+      OPENDATA_COMPOSE_PROVISION_LOAD_REPOS: ${OPENDATA_COMPOSE_PROVISION_LOAD_REPOS:-0}
+    volumes:
+      - ./definitions.local.yml:/workspace/definitions.yml:ro
+      - definitions_work:/workspace/data/definitions_work
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        EXTRA=
+        if [ "$$OPENDATA_COMPOSE_PROVISION_LOAD_REPOS" = "1" ]; then
+          EXTRA=--load-repos
+        fi
+        exec python3 scripts/provision_roles.py --manifest "$$OPENDATA_DEFINITIONS_MANIFEST_PATH" $$EXTRA
+    restart: "no"
+
+  dagster:
+    image: ${OPENDATA_FRAMEWORK_IMAGE:?set OPENDATA_FRAMEWORK_IMAGE in .env}
+    command: ["dagster", "dev", "-h", "0.0.0.0", "-p", "3000", "-m", "pipeline.dagster_defs"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-opendata}:${POSTGRES_PASSWORD:-opendata}@postgres:5432/${POSTGRES_DB:-opendata}
+      OPENDATA_DEFINITIONS_MANIFEST_PATH: /workspace/definitions.yml
+      OPENDATA_DEFINITIONS_WORK_DIR: /workspace/data/definitions_work
+      OPENDATA_DAGSTER_DEFINITION_LOAD: ${OPENDATA_DAGSTER_DEFINITION_LOAD:-clone}
+      OPENDATA_DAGSTER_MATERIALIZE: ${OPENDATA_DAGSTER_MATERIALIZE:-full}
+      DEFINITIONS_REFRESH_ON_START: ${DEFINITIONS_REFRESH_ON_START:-false}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-opendata-landing}
+    ports:
+      - "${DAGSTER_PORT:-3000}:3000"
+    volumes:
+      - ./definitions.local.yml:/workspace/definitions.yml:ro
+      - definitions_work:/workspace/data/definitions_work
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      provision:
+        condition: service_completed_successfully
+
+  api:
+    image: ${OPENDATA_FRAMEWORK_IMAGE:?set OPENDATA_FRAMEWORK_IMAGE in .env}
+    command: ["uvicorn", "api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-opendata}:${POSTGRES_PASSWORD:-opendata}@postgres:5432/${POSTGRES_DB:-opendata}
+      OPENDATA_DEFINITIONS_MANIFEST_PATH: /workspace/definitions.yml
+      OPENDATA_DEFINITIONS_WORK_DIR: /workspace/data/definitions_work
+      OPENDATA_DAGSTER_DEFINITION_LOAD: ${OPENDATA_DAGSTER_DEFINITION_LOAD:-clone}
+      DEFINITIONS_REFRESH_ON_START: ${DEFINITIONS_REFRESH_ON_START:-false}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-opendata-landing}
+      OPENDATA_API_ROLE_DSNS: ${OPENDATA_API_ROLE_DSNS:-}
+      OPENDATA_API_KEYS_LOOKUP_DSN: ${OPENDATA_API_KEYS_LOOKUP_DSN:-}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./definitions.local.yml:/workspace/definitions.yml:ro
+      - definitions_work:/workspace/data/definitions_work
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      provision:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
+  minio_data:
+  definitions_work:

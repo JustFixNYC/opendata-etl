@@ -4,7 +4,7 @@ Operator checklist to prove the **parallel POC** stack end-to-end: Terraform app
 
 **Prerequisites (framework Steps 19b–22):**
 
-- `s3_copy_rds` load backend, split extract/load assets (`profile: standard` schedules), [`examples/definitions.poc.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.poc.yml).
+- `s3_copy_rds` load backend, split extract/load assets (`profile: standard` schedules), and an operator deployment repo `definitions.poc.yml`.
 - Human AWS credentials with permission to apply Terraform and use SSM.
 
 **Companion docs:**
@@ -14,7 +14,7 @@ Operator checklist to prove the **parallel POC** stack end-to-end: Terraform app
 | Terraform variables, ECR, EC2 env templates | [First-time AWS deploy](aws-first-deploy.md) |
 | PostGIS + `aws_s3` + provisioning | [RDS S3 COPY bootstrap](aws-s3-copy-bootstrap.md) |
 | Postico / `psql` via SSM | [Database access (SSM)](aws-database-access.md) |
-| 19b operator checklist | `_planning/extra-plans/opendata-etl-step-19b-aws-readiness-for-step-20.plan.md` |
+| Deployment repo layout | [Deployment repositories](../deployment-repositories.md) |
 
 ## Record Terraform outputs (19b)
 
@@ -116,8 +116,8 @@ export DATABASE_URL="postgresql://opendata_admin:${PGPASSWORD}@127.0.0.1:15432/o
 export OPENDATA_PG_OWNER_ROLE=opendata_admin
 
 cd ../..
-python scripts/provision_roles.py \
-  --manifest examples/definitions.poc.yml \
+python /path/to/opendata-etl/scripts/provision_roles.py \
+  --manifest /path/to/deployment-repo/definitions.poc.yml \
   --table-owner-role opendata_admin
 ```
 
@@ -134,7 +134,7 @@ Follow [First-time AWS deploy](aws-first-deploy.md) **Parts 5–8** with these P
 | Setting | Value |
 |---------|--------|
 | Image tag | `poc` (or your chosen tag) |
-| Manifest on instances | `/etc/opendata-etl/definitions.yml` ← copy of `examples/definitions.poc.yml` |
+| Manifest on instances | `/etc/opendata-etl/definitions.yml` ← copy of deployment repo `definitions.poc.yml` |
 | `DAGSTER_HOME` | `/var/lib/opendata-etl/dagster_home` (SQLite) |
 | Orchestrator | Mount `docker.sock` if using `OPENDATA_DERIVED_RUNNER=docker` later |
 | `DATABASE_URL` | `opendata_admin` @ `database_endpoint` (private DNS from EC2) |
@@ -261,7 +261,7 @@ docker exec -w /workspace dagster dg launch --assets \
   'key:"nycdb2/nyc_housing/dbt/fixture_greeting_count"'
 ```
 
-**Derived docker (optional):** [`definitions.poc.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.poc.yml) does not enable derived jobs (`nycdb2` has no `derived_python` jobs). Skip for POC subset, or add a derived-enabled repo to the manifest in a follow-up experiment.
+**Derived docker (optional):** if your POC manifest does not enable derived jobs, skip this proof. Otherwise build the definition repo's derived image and keep the image ref pinned in operator configuration.
 
 **Phase C load done when:** all selected load assets **Succeeded** before **07:00 America/New_York** when using scheduled overnight runs; `extract_landing_exists` checks pass.
 

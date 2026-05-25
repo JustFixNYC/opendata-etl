@@ -1,6 +1,6 @@
 # Archived EKS module (Step 19)
 
-This directory preserves the Step 19 **EKS** Terraform module (`cluster`, managed node group, IRSA worker role) removed in **Step 19b** for the JustFix parallel POC (`profile: standard` — EC2 orchestrator only, no Kubernetes).
+This directory preserves the historical **EKS** Terraform module (`cluster`, managed node group, IRSA worker role). The active `profile: standard` reference uses an EC2 orchestrator and no Kubernetes.
 
 To restore EKS for a future `profile: scaled` deployment:
 

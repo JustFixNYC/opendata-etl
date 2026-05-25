@@ -117,7 +117,7 @@ The script is idempotent. It reads the same `definitions.yml` contract as `load_
 - Print SQL without connecting: `python3 scripts/provision_roles.py --manifest examples/definitions.prod.yml --print-sql`
 - Optional: `OPENDATA_PG_OWNER_ROLE` (default `opendata`) must match the role that will own loaded tables so `ALTER DEFAULT PRIVILEGES ... FOR ROLE` applies to future objects.
 
-**Smoke check (protected schema):** after provisioning with `examples/definitions.prod.yml`, connect as superuser, create a table in `nyc_reports`, then `SET ROLE opendata_public_read` and confirm `SELECT` on that table fails while `SELECT` on a table in `nyc_housing` succeeds. Automated equivalent: `OPENDATA_PROVISION_TEST_DATABASE_URL="$DATABASE_URL" python3 -m pytest -q tests/test_provisioning.py::test_live_postgres_public_read_cannot_select_protected_schema`.
+**Smoke check (protected schema):** after provisioning with `examples/definitions.prod.yml`, connect as superuser, create a table in `ex_reports`, then `SET ROLE opendata_public_read` and confirm `SELECT` on that table fails while `SELECT` on a table in `ex_housing` succeeds. Automated equivalent: `OPENDATA_PROVISION_TEST_DATABASE_URL="$DATABASE_URL" python3 -m pytest -q tests/test_provisioning.py::test_live_postgres_public_read_cannot_select_protected_schema`.
 
 ## Host Dagster + Docker Postgres (Workflow A)
 
@@ -148,7 +148,7 @@ python3 scripts/provision_roles.py --manifest examples/definitions.local.yml \
 
 EXECUTE is granted on functions referenced in `api_endpoints/` SQL to each repo’s `opendata_<schema>_read` role.
 
-dg launch --assets 'key:"nycdb2/nyc_housing/rentstab_v2/extract/rentstab_v2"'
+dg launch --assets 'key:"example_collection/ex_housing/sample_csv/extract/rows"'
 ```
 
 Set the same ``OPENDATA_DEFINITIONS_MANIFEST_PATH``, ``OPENDATA_DEFINITIONS_WORK_DIR``, and ``OPENDATA_DAGSTER_DEFINITION_LOAD`` as for ``dagster dev`` so ``dg`` loads the same manifest-backed definitions (see ``.env.example``).

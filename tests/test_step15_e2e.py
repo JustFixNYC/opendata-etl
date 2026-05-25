@@ -18,7 +18,8 @@ from pipeline.provisioning import load_deployment_manifest, read_role_for_schema
 from pipeline.validation import load_yaml, validate_deployment_document
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-NYCDB2 = Path(os.environ.get("NYCDB2_REPO", "/Users/maxwell/repos/nycdb2")).resolve()
+_NYCDB2_REPO_ENV = os.environ.get("NYCDB2_REPO")
+NYCDB2 = Path(_NYCDB2_REPO_ENV).resolve() if _NYCDB2_REPO_ENV else None
 
 
 def _e2e_enabled() -> bool:
@@ -34,6 +35,8 @@ def _unique_schema() -> str:
 
 
 def _nycdb2_repo() -> LoadedDefinitionRepo:
+    if NYCDB2 is None:
+        pytest.skip("set NYCDB2_REPO to run nycdb2 network E2E")
     if not (NYCDB2 / "repo.yml").is_file():
         pytest.skip(f"nycdb2 not found at {NYCDB2}")
     return LoadedDefinitionRepo(
@@ -61,6 +64,8 @@ def _credential_decls() -> dict:
 @pytest.mark.skipif(not _e2e_enabled(), reason="set OPENDATA_STEP15_E2E=1 to run Tier B network E2E")
 @pytest.mark.skipif(not _loader_dsn(), reason="set OPENDATA_LOADER_TEST_DATABASE_URL or DATABASE_URL")
 def test_rentstab_v2_materialize(tmp_path: Path) -> None:
+    if NYCDB2 is None:
+        pytest.skip("set NYCDB2_REPO to run nycdb2 network E2E")
     dsn = _loader_dsn()
     assert dsn
     schema = _unique_schema()
@@ -118,6 +123,8 @@ def test_rentstab_v2_materialize(tmp_path: Path) -> None:
 @pytest.mark.skipif(not _e2e_enabled(), reason="set OPENDATA_STEP15_E2E=1 to run Tier B network E2E")
 @pytest.mark.skipif(not _loader_dsn(), reason="set OPENDATA_LOADER_TEST_DATABASE_URL or DATABASE_URL")
 def test_nycc_materialize(tmp_path: Path) -> None:
+    if NYCDB2 is None:
+        pytest.skip("set NYCDB2_REPO to run nycdb2 network E2E")
     pytest.importorskip("shutil")
     from pipeline.extract.shapefile import ogr2ogr_available
 

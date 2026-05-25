@@ -20,7 +20,7 @@ Local and CI environments should use **pinned git revisions** for each definitio
 
 **Docker Compose** (PostGIS, MinIO, Dagster shell, FastAPI shell): copy `.env.example` to `.env`, then from the repo root run `docker compose config` and `docker compose up --build`. Detailed workflow, env vars, and health-check notes: [docs/local-development.md](docs/local-development.md).
 
-## Layout (skeleton through Step 4)
+## Layout
 
 | Path | Role |
 |------|------|
@@ -31,7 +31,7 @@ Local and CI environments should use **pinned git revisions** for each definitio
 | `docs/` | MkDocs Material site (`mkdocs.yml`); run `aggregate_docs.py` + `gen_docs.py` before `mkdocs build`. |
 | `examples/` | Sample definition repo tree and `definitions*.yml` manifests. |
 | `docker-compose.yml` | Local runtime: `postgres`, `minio`, `dagster`, `api`. |
-| `infra/aws/` | Future Terraform / AWS reference (Step 17). |
+| `infra/aws/` | Reference Terraform modules for standard AWS deployments. |
 | `.github/workflows/` | CI: Python tests, fixture validation, `docker compose config` (no image pull). |
 
 ## Python extras
@@ -42,16 +42,13 @@ Local and CI environments should use **pinned git revisions** for each definitio
 
 CI installs **`pip install -e ".[dev,docs]"`** so tests, definition validation, `dg check`, dbt parsing, and MkDocs all use the same packaged extras.
 
-## Source-of-truth documents
+## Deployment model
 
-Planning files live in the shared **`_planning/`** folder of the multi-repo workspace (not versioned inside this repo):
-
-- **Master plan** (agent-led steps and handoffs): `/Users/maxwell/repos/_planning/opendata-etl_master_plan.plan.md`
-- **Architecture plan** (decisions and rationale): `/Users/maxwell/repos/_planning/etl_pipeline_tech_stack.plan.md`
+Production-like use follows a three-layer model: this framework repo, one or more definition repos, and an operator-owned deployment repo. See [deployment repositories](docs/deployment-repositories.md) for the split, image pinning, and Terraform consumption pattern.
 
 ## Status
 
-Follow the [master plan](docs/index.md) in `_planning/` for current milestones. The repo includes Docker Compose, the definitions loader, extract/load, dbt and API factories, monitoring, and an **MkDocs Material** documentation build (`mkdocs.yml`, `scripts/aggregate_docs.py`, `scripts/gen_docs.py`) with optional GitHub Pages deployment.
+The repo includes Docker Compose, the definitions loader, extract/load, dbt and API factories, monitoring, and an **MkDocs Material** documentation build (`mkdocs.yml`, `scripts/aggregate_docs.py`, `scripts/gen_docs.py`) with optional GitHub Pages deployment.
 
 ## Contributing
 

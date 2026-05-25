@@ -1,0 +1,25 @@
+# Standard-profile API host (one service per EC2).
+# Manifest is downloaded separately at boot and mounted read-only.
+
+services:
+  api:
+    image: ${OPENDATA_FRAMEWORK_IMAGE:?set OPENDATA_FRAMEWORK_IMAGE in .env}
+    container_name: api
+    restart: unless-stopped
+    env_file:
+      - ${OPENDATA_RUNTIME_ENV_FILE:-.env}
+    command:
+      [
+        "uvicorn",
+        "api.app:create_app",
+        "--factory",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/lib/opendata-etl:/var/lib/opendata-etl
+      - ./definitions.yml:/opt/opendata-etl/definitions.yml:ro

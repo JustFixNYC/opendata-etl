@@ -50,12 +50,12 @@ def test_fetch_s3_unsigned(monkeypatch: pytest.MonkeyPatch) -> None:
     data, out_fp, unchanged = fetch_source_bytes(
         {
             "type": "s3_object",
-            "bucket": "justfix-data",
+            "bucket": "public-fixture-bucket",
             "key": "x.csv",
-            "credential": "justfix_data_public",
+            "credential": "public_fixture_reader",
         },
         source_credentials={},
-        credential_decls={"justfix_data_public": {"kind": "none"}},
+        credential_decls={"public_fixture_reader": {"kind": "none"}},
     )
     assert data.startswith(b"h")
     assert out_fp == fp

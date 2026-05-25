@@ -101,13 +101,13 @@ export DATABASE_URL="postgresql://opendata_admin:${PGPASSWORD}@127.0.0.1:15432/o
 cd ../..
 export OPENDATA_PG_OWNER_ROLE=opendata_admin
 python scripts/provision_roles.py \
-  --manifest examples/definitions.poc.yml \
+  --manifest /path/to/deployment-repo/definitions.poc.yml \
   --table-owner-role opendata_admin
 ```
 
 - CLI flag is **`--manifest`**, not `--definitions`.
 - **Table owner role:** Lite Docker uses `opendata`; RDS POC only has the Terraform master user (`opendata_admin` by default). Pass **`--table-owner-role opendata_admin`** (and set `OPENDATA_PG_OWNER_ROLE` for later loads) so `CREATE SCHEMA ... AUTHORIZATION` succeeds.
-- **`examples/definitions.poc.yml`** — `profile: standard` with a subset of `nycdb2` datasets for parallel POC ([first-time deploy](aws-first-deploy.md)).
+- Deployment repo **`definitions.poc.yml`** — `profile: standard` with the operator's POC dataset subset ([first-time deploy](aws-first-deploy.md)).
 - If RDS is reachable without port forward (e.g. from orchestrator after you install Python there), set `DATABASE_URL` with `terraform output -raw database_endpoint` as the host instead of `127.0.0.1`.
 
 ## Troubleshooting

@@ -23,4 +23,30 @@ By contributing, you agree that your contributions are licensed under the **GNU 
 
 ## Definition repositories
 
-Dataset and API definitions live in **separate repositories** (for example `nycdb2`). Changes to the definition contract or example layouts should stay aligned with the master plan steps for schemas and loaders.
+Dataset and API definitions live in **separate repositories** (for example [`nycdb2`](https://github.com/JustFixNYC/nycdb2)). Changes to the definition contract or example layouts should include matching schema, docs, and validation updates in this repo.
+
+Definition changes should include:
+
+- a pinned deployment manifest entry for local testing;
+- sample CSV or fixture coverage when the source supports it;
+- `freshness_sla_hours` and, when useful, `source_freshness_sla_hours`;
+- table-level integrity settings such as `min_row_count` and `allow_row_count_decrease` for sources where row-count shrinkage is expected.
+
+## Standard Profile Contributions
+
+The `standard` profile runs extract and load as separate Dagster assets:
+
+- extract assets run during the day and land files in S3;
+- load assets run overnight and use `s3_copy_rds` to copy from S3 into RDS;
+- derived jobs may run in Docker on the orchestrator host with `OPENDATA_DERIVED_RUNNER=docker`.
+
+When changing scheduling behavior, keep the split-host assumptions in mind: the API host should not run batch work, and the orchestrator should be the only host with Docker socket access for derived jobs.
+
+## Source SLA Playbook
+
+For source reliability changes:
+
+- Prefer explicit dataset YAML over hidden runtime heuristics.
+- Use `source_freshness_sla_hours` for upstream data age and `freshness_sla_hours` for loaded-table age.
+- Treat freshness checks as warnings unless a product decision says a stale source should block loads.
+- Document source-specific failure modes in the definition repo so operators know whether to retry, skip, or contact the publisher.

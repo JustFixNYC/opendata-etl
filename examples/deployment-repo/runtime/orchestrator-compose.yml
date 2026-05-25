@@ -8,7 +8,7 @@ services:
     container_name: dagster
     restart: unless-stopped
     env_file:
-      - .env
+      - ${OPENDATA_RUNTIME_ENV_FILE:-.env}
     command:
       [
         "dagster",

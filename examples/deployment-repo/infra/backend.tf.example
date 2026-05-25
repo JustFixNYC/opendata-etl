@@ -1,0 +1,13 @@
+# Optional post-MVP remote state example.
+# Copy to backend.tf after you create the bucket/table and run:
+# terraform init -migrate-state
+
+terraform {
+  backend "s3" {
+    bucket         = "REPLACE_TERRAFORM_STATE_BUCKET"
+    key            = "opendata-etl/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "REPLACE_TERRAFORM_LOCK_TABLE"
+    encrypt        = true
+  }
+}

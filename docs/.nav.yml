@@ -7,8 +7,10 @@
 nav:
   - Home: index.md
   - Local development: local-development.md
+  - Deployment repositories: deployment-repositories.md
   - API security: api-security.md
   - Deployment profiles: deployment-profiles.md
+  - Release policy: release.md
   - AWS deployment:
       - Overview: deployment/aws-scaled.md
       - Components explained: deployment/aws-components.md
@@ -19,7 +21,6 @@ nav:
       - Ongoing maintenance: deployment/aws-maintenance.md
   - DigitalOcean scaled: deployment/digitalocean-scaled.md
   - Column naming: column-names.md
-  - Legacy nycdb importer: legacy-nycdb-importer.md
   - Python derived jobs: python-derived-jobs.md
   - Definition repo docs:
       - Overview: generated/definition_repos/index.md

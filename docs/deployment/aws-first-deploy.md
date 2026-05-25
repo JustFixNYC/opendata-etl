@@ -11,8 +11,8 @@ For **what each AWS piece does**, read [Components explained](aws-components.md)
 - AWS account with **billing alerts** (Cost Explorer → Budgets).
 - IAM user or role with permission to create VPC, RDS, S3, EC2, IAM, SSM (AdministratorAccess for first apply is simplest; narrow later).
 - **Terraform** >= 1.5 and **AWS CLI** v2 + **Session Manager plugin** (`aws sts get-caller-identity`).
-- **Docker** (build/push images to ECR).
-- POC manifest: `[examples/definitions.poc.yml](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.poc.yml)` (`profile: standard`, subset `enabled_datasets`).
+- **Docker** (build/push images to ECR, or mirror a published release image).
+- Deployment repo with `definitions.poc.yml` (`profile: standard`, subset `enabled_datasets`) and `runtime/` compose files. See [Deployment repositories](../deployment-repositories.md).
 
 ### Host layout (standard profile)
 
@@ -39,8 +39,10 @@ For **shared production**, add an S3 remote backend later (post-MVP). Do not com
 
 ## Part 2 — Configure variables
 
+From the operator deployment repo:
+
 ```bash
-cd infra/aws
+cd infra
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -115,8 +117,8 @@ export PGPASSWORD="$(aws ssm get-parameter \
   --with-decryption --query Parameter.Value --output text)"
 export DATABASE_URL="postgresql://opendata_admin:${PGPASSWORD}@127.0.0.1:15432/opendata?sslmode=require"
 
-python scripts/provision_roles.py \
-  --manifest examples/definitions.poc.yml \
+python /path/to/opendata-etl/scripts/provision_roles.py \
+  --manifest /path/to/deployment-repo/definitions.poc.yml \
   --table-owner-role opendata_admin
 ```
 
@@ -168,11 +170,11 @@ The reference orchestrator EC2 **user_data** installs Docker, pulls a **runtime 
 
 ```bash
 cd /path/to/opendata-etl
-./scripts/build-runtime-bundle.sh /tmp/orchestrator-runtime.tar.gz
+RUNTIME_DIR=/path/to/deployment-repo/runtime ./scripts/build-runtime-bundle.sh /tmp/orchestrator-runtime.tar.gz
 
-cd infra/aws
+cd /path/to/deployment-repo/infra
 aws s3 cp /tmp/orchestrator-runtime.tar.gz "$(terraform output -raw orchestrator_runtime_bundle_s3_uri)"
-aws s3 cp ../../examples/definitions.poc.yml "$(terraform output -raw orchestrator_manifest_s3_uri)"
+aws s3 cp ../definitions.poc.yml "$(terraform output -raw orchestrator_manifest_s3_uri)"
 ```
 
 Defaults (when `orchestrator_*_s3_uri` tfvars are empty):
@@ -180,7 +182,7 @@ Defaults (when `orchestrator_*_s3_uri` tfvars are empty):
 - `s3://<landing_bucket>/config/orchestrator-runtime.tar.gz`
 - `s3://<landing_bucket>/config/definitions.yml`
 
-Override URIs in `terraform.tfvars` or use a test bucket — see [`examples/deployment-repo/README-automation.md`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/deployment-repo/README-automation.md).
+Override URIs in `terraform.tfvars` or use a test bucket — see `examples/deployment-repo/README-automation.md`.
 
 **2. Launch or refresh the instance** — upload **before** first boot when possible. If the instance already started without S3 objects:
 
@@ -269,12 +271,13 @@ DAGSTER_HOME=/var/lib/opendata-etl/dagster_home
 # OPENDATA_SLACK_CHANNEL=...
 ```
 
-Install the POC manifest on the orchestrator (same file as Part 4 provisioning):
+Install the POC manifest on the orchestrator (same file as Part 4 provisioning). In the automated path, `user_data` downloads this from S3; this manual fallback copies it from your deployment repo:
 
 ```bash
 sudo mkdir -p /etc/opendata-etl /var/lib/opendata-etl/definitions_work
-sudo curl -fsSL -o /etc/opendata-etl/definitions.yml \
-  https://raw.githubusercontent.com/JustFixNYC/opendata-etl/main/examples/definitions.poc.yml
+# From your laptop, or via SSM file copy workflow:
+# scp /path/to/deployment-repo/definitions.poc.yml <host>:/tmp/definitions.yml
+sudo cp /tmp/definitions.yml /etc/opendata-etl/definitions.yml
 ```
 
 Run Dagster (example):
@@ -433,7 +436,7 @@ When `create_api_instance = true`, Terraform creates a **second** private EC2 fo
 
 **Prerequisites**
 
-- Part **4** (`provision_roles.py` with `examples/definitions.poc.yml`) — creates `opendata_public_read` and `opendata_nyc_housing_read` (no passwords yet).
+- Part **4** (`provision_roles.py` with the deployment repo `definitions.poc.yml`) — creates `opendata_public_read` and one read role per manifest schema (no passwords yet).
 - Part **5** image pushed to ECR as `:poc`.
 - For `GET /housing/hello/by-id` to return rows: Part **6** (or **9**) `fixture_hello` **load** completed on the orchestrator.
 
@@ -501,8 +504,7 @@ On the **API instance**:
 
 ```bash
 sudo mkdir -p /etc/opendata-etl /var/lib/opendata-etl/definitions_work
-sudo curl -fsSL -o /etc/opendata-etl/definitions.yml \
-  https://raw.githubusercontent.com/JustFixNYC/opendata-etl/main/examples/definitions.poc.yml
+sudo cp /tmp/definitions.yml /etc/opendata-etl/definitions.yml
 sudo chmod 644 /etc/opendata-etl/definitions.yml
 ```
 

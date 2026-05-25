@@ -36,16 +36,16 @@ def test_prod_manifest_public_cannot_read_protected_schema() -> None:
         deployment=deployment,
         repos=(),
         source_credentials={},
-        topo_order_names=("nycdb2", "derived_reports"),
+        topo_order_names=("example_collection", "protected_reports"),
     )
     m = build_schema_access_model(lr)
-    assert "nyc_housing" in m.public_read_schemas
-    assert "nyc_reports" not in m.public_read_schemas
-    rr_reports = read_role_for_schema("nyc_reports")
-    assert "nyc_reports" in m.schemas_readable_by_role[rr_reports]
-    assert "nyc_housing" in m.schemas_readable_by_role[rr_reports]
+    assert "ex_housing" in m.public_read_schemas
+    assert "ex_reports" not in m.public_read_schemas
+    rr_reports = read_role_for_schema("ex_reports")
+    assert "ex_reports" in m.schemas_readable_by_role[rr_reports]
+    assert "ex_housing" in m.schemas_readable_by_role[rr_reports]
 
-    refs = frozenset({"nyc_reports"})
+    refs = frozenset({"ex_reports"})
     assert m.choose_pool_role(referenced_schemas=refs, anonymous=True, key_roles=None) is None
     assert (
         m.choose_pool_role(
@@ -57,7 +57,7 @@ def test_prod_manifest_public_cannot_read_protected_schema() -> None:
     )
     assert (
         m.choose_pool_role(
-            referenced_schemas=frozenset({"nyc_housing"}),
+            referenced_schemas=frozenset({"ex_housing"}),
             anonymous=True,
             key_roles=None,
         )

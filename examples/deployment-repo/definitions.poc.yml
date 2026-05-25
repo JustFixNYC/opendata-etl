@@ -1,0 +1,19 @@
+api_version: opendata-etl.definitions/v1
+profile: standard
+notes: |
+  Template standard-profile manifest. Keep the real copy in the deployment repo
+  and upload it separately from the runtime bundle for EC2 bootstrap.
+source_credentials:
+  fake_source_reader:
+    kind: aws_iam
+    description: Example instance-profile credential for protected source reads.
+definitions:
+  - name: example_collection
+    url: "https://github.com/example-org/example-definition-repo.git"
+    ref: "v0.1.0"
+    schema: ex_housing
+    protected: false
+    depends_on: []
+    enabled_datasets:
+      - sample_csv
+      - bundle_demo

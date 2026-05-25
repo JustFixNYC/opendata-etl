@@ -1,6 +1,6 @@
 # AWS standard / POC infrastructure (Terraform)
 
-Reference IaC for **`profile: standard`** parallel POC deployments: **RDS PostgreSQL 16**, S3 landing bucket, EC2 orchestrator (optional API EC2), ECR repositories, split security groups, IAM roles, RDS S3-import IAM, and SSM parameters for secrets.
+Reference IaC for **`profile: standard`** deployments: **RDS PostgreSQL 16**, S3 landing bucket, EC2 orchestrator (optional API EC2), ECR repositories, split security groups, IAM roles, RDS S3-import IAM, and SSM parameters for secrets.
 
 **No EKS** in active Terraform (Step 19b). The Step 19 EKS and Aurora modules are archived under [`_archived/`](_archived/).
 
@@ -34,6 +34,8 @@ infra/aws/
 
 ## Quick start
 
+For a real environment, apply this module from an operator deployment repo pinned to a framework release tag. Direct use from this directory is useful for framework development and POC experiments.
+
 ```bash
 cd infra/aws
 cp terraform.tfvars.example terraform.tfvars
@@ -50,11 +52,10 @@ terraform plan -out=tfplan
 1. Read `terraform output -json` — record `landing_bucket_name`, `database_endpoint`, `master_password_ssm`, `orchestrator_instance_id`.
 2. Bootstrap RDS extensions: [`docs/deployment/aws-s3-copy-bootstrap.md`](../../docs/deployment/aws-s3-copy-bootstrap.md).
 3. Database access (Postico / psql): [`docs/deployment/aws-database-access.md`](../../docs/deployment/aws-database-access.md).
-4. Operator checklist: `/Users/maxwell/repos/_planning/extra-plans/opendata-etl-step-19b-aws-readiness-for-step-20.plan.md`
-5. Application: `OPENDATA_LOAD_BACKEND=s3_copy_rds` (Step 20); POC manifest [`examples/definitions.poc.yml`](../../examples/definitions.poc.yml) and split API EC2 (`create_api_instance = true` in `terraform.tfvars.example`).
-6. Deploy guide: [`docs/deployment/aws-first-deploy.md`](../../docs/deployment/aws-first-deploy.md).
-7. Orchestrator S3 bootstrap (Step 26f): [`examples/deployment-repo/README-automation.md`](../../examples/deployment-repo/README-automation.md) — upload runtime bundle + manifest, then `docker compose` via `user_data`.
-8. Validation runbook (Step 23): [`docs/deployment/aws-poc-validation.md`](../../docs/deployment/aws-poc-validation.md).
+4. Application: `OPENDATA_LOAD_BACKEND=s3_copy_rds`; keep POC/prod manifests in the deployment repo and set `create_api_instance = true` for the split API EC2 path.
+5. Deploy guide: [`docs/deployment/aws-first-deploy.md`](../../docs/deployment/aws-first-deploy.md).
+6. Orchestrator S3 bootstrap: [`examples/deployment-repo/README-automation.md`](../../examples/deployment-repo/README-automation.md) — upload runtime bundle + manifest, then `docker compose` via `user_data`.
+7. Validation runbook: [`docs/deployment/aws-poc-validation.md`](../../docs/deployment/aws-poc-validation.md).
 
 ## Secrets
 

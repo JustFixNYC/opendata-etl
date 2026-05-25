@@ -11,11 +11,12 @@ The manifest is **never** inside the runtime tarball so you can update datasets 
 
 ## Build and upload (operator)
 
-From the framework repo root, after `terraform apply` (or with any test bucket):
+From the framework repo root, after `terraform apply` (or with any test bucket). If you copied this
+template into a deployment repo, set `RUNTIME_DIR` to that repo's `runtime/` path:
 
 ```bash
 # 1) Build runtime tarball (no definitions*.yml)
-./scripts/build-runtime-bundle.sh /tmp/orchestrator-runtime.tar.gz
+RUNTIME_DIR=/path/to/deployment-repo/runtime ./scripts/build-runtime-bundle.sh /tmp/orchestrator-runtime.tar.gz
 
 # 2) Resolve S3 targets (defaults match infra/aws locals)
 cd infra/aws
@@ -25,7 +26,7 @@ cd ../..
 
 # 3) Upload both objects
 aws s3 cp /tmp/orchestrator-runtime.tar.gz "$BUNDLE_URI"
-aws s3 cp examples/definitions.poc.yml "$MANIFEST_URI"
+aws s3 cp /path/to/deployment-repo/definitions.poc.yml "$MANIFEST_URI"
 ```
 
 **Dry-run with a test bucket** (no Terraform):
@@ -35,7 +36,7 @@ export TEST_BUCKET=my-opendata-config-test
 aws s3 mb "s3://${TEST_BUCKET}" 2>/dev/null || true
 ./scripts/build-runtime-bundle.sh /tmp/orchestrator-runtime.tar.gz
 aws s3 cp /tmp/orchestrator-runtime.tar.gz "s3://${TEST_BUCKET}/config/orchestrator-runtime.tar.gz"
-aws s3 cp examples/definitions.poc.yml "s3://${TEST_BUCKET}/config/definitions.yml"
+aws s3 cp /path/to/deployment-repo/definitions.poc.yml "s3://${TEST_BUCKET}/config/definitions.yml"
 aws s3 ls "s3://${TEST_BUCKET}/config/"
 ```
 
@@ -81,5 +82,4 @@ Prefer uploading **before** the first orchestrator launch when possible.
 
 - [`runtime/orchestrator-compose.yml`](runtime/orchestrator-compose.yml) — Dagster service (docker.sock for derived jobs)
 - [`runtime/env.orchestrator.example`](runtime/env.orchestrator.example) — documentation template (live `.env` is rendered from SSM at boot)
-
-Step **27** moves this tree into `opendata-etl-deployment`; Step **28** adds API host automation.
+- [`runtime/api-compose.yml`](runtime/api-compose.yml) and [`runtime/env.api.example`](runtime/env.api.example) — API host shape; automated API bootstrap lands in a follow-up.

@@ -1,13 +1,12 @@
 api_version: opendata-etl.definitions/v1
 profile: lite
 notes: |
-  Generic fixture-only local manifest for framework development and CI.
-  Deployments should copy this pattern into their own deployment repo and pin
-  real definition repositories there.
+  Template local manifest for a deployment repo. Replace the URL/ref with your
+  definition repository and keep refs pinned for repeatable runs.
 source_credentials:
   fake_source_reader:
     kind: aws_profile
-    description: Example placeholder for examples/definition-repo s3_fixture.
+    description: Example placeholder for an S3 fixture credential.
 definitions:
   - name: example_collection
     url: "https://github.com/example-org/example-definition-repo.git"
@@ -18,6 +17,3 @@ definitions:
     enabled_datasets:
       - sample_csv
       - bundle_demo
-      - s3_fixture
-      - greeting_letter_counts
-      - building_rollups

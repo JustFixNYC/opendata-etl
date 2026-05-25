@@ -1,6 +1,6 @@
 # AWS scaled deployment
 
-Production deployments use **`profile: scaled`** in `definitions.yml` (see [`examples/definitions.prod.yml`](https://github.com/JustFixNYC/opendata-etl/blob/main/examples/definitions.prod.yml)). Terraform under [`infra/aws/`](https://github.com/JustFixNYC/opendata-etl/blob/main/infra/aws/README.md) provisions Aurora, S3 landing, EKS, ECR, and split security groups.
+The historical **`profile: scaled`** reference used Aurora, S3, EKS, ECR, and split security groups. Active AWS docs now focus on `profile: standard` (RDS PostgreSQL, S3, EC2 orchestrator, split API host). Keep production manifests in an operator deployment repo; framework examples are fixture-only.
 
 ## Documentation map
 
