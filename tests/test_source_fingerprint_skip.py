@@ -76,7 +76,7 @@ def test_extract_skips_when_fingerprint_unchanged(
         protected=False,
         depends_on=(),
         enabled_datasets=("sample_csv",),
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml={"name": "r"},
         topo_index=0,
     )

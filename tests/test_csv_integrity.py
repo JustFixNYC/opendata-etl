@@ -134,7 +134,7 @@ def test_extract_and_land_fails_before_landing_on_truncated(
         protected=False,
         depends_on=(),
         enabled_datasets=("sample_csv",),
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml={"name": "r"},
         topo_index=0,
     )

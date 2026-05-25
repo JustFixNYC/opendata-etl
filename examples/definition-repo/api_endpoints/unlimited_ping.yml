@@ -1,0 +1,11 @@
+path: /fixture/unlimited-ping
+method: GET
+description: Fixture endpoint showing explicit opt-out from app-level rate limits.
+rate_limit:
+  anonymous: none
+  api_key: none
+params: []
+output:
+  format: json
+sql: |
+  SELECT 1 AS ok

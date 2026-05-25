@@ -69,14 +69,14 @@
         }
       }
     },
-    "crossRepoGrant": {
+    "readsFromSchema": {
       "type": "object",
       "additionalProperties": false,
       "required": ["schema", "access"],
       "properties": {
         "schema": {
           "$ref": "#/$defs/postgresIdentifier",
-          "description": "Foreign Postgres schema this repo's processing role may read."
+          "description": "Upstream Postgres schema this repo's read role may SELECT from."
         },
         "access": {
           "type": "string",
@@ -140,10 +140,10 @@
           },
           "uniqueItems": true
         },
-        "cross_repo_grants": {
+        "reads_from_schemas": {
           "type": "array",
-          "description": "Explicit SELECT-style access from this repo to rows in another schema (does not follow depends_on automatically).",
-          "items": { "$ref": "#/$defs/crossRepoGrant" }
+          "description": "Explicit read access from this consumer repo to upstream schemas (depends_on controls order only).",
+          "items": { "$ref": "#/$defs/readsFromSchema" }
         }
       }
     }

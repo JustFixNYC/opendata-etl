@@ -48,7 +48,7 @@ def _nycdb2_repo() -> LoadedDefinitionRepo:
         protected=False,
         depends_on=(),
         enabled_datasets=("rentstab_v2", "nycc"),
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml=load_yaml(NYCDB2 / "repo.yml"),
         topo_index=0,
     )
@@ -103,7 +103,7 @@ def test_rentstab_v2_materialize(tmp_path: Path) -> None:
         protected=repo.protected,
         depends_on=repo.depends_on,
         enabled_datasets=("rentstab_v2",),
-        cross_repo_grants=repo.cross_repo_grants,
+        reads_from_schemas=repo.reads_from_schemas,
         repo_yaml=repo.repo_yaml,
         topo_index=repo.topo_index,
     )
@@ -168,7 +168,7 @@ def test_nycc_materialize(tmp_path: Path) -> None:
         protected=repo.protected,
         depends_on=repo.depends_on,
         enabled_datasets=("nycc",),
-        cross_repo_grants=repo.cross_repo_grants,
+        reads_from_schemas=repo.reads_from_schemas,
         repo_yaml=repo.repo_yaml,
         topo_index=repo.topo_index,
     )

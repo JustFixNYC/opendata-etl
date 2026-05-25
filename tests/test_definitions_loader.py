@@ -107,7 +107,7 @@ def test_load_definitions_success_two_repos(tmp_path: Path) -> None:
                 protected: true
                 depends_on:
                   - base
-                cross_repo_grants:
+                reads_from_schemas:
                   - schema: s_base
                     access: read
             """,
@@ -121,6 +121,7 @@ def test_load_definitions_success_two_repos(tmp_path: Path) -> None:
     assert result.repos[0].schema == "s_base"
     assert result.repos[1].protected is True
     assert result.repos[1].depends_on == ("base",)
+    assert result.repos[1].reads_from_schemas == ({"schema": "s_base", "access": "read"},)
     assert result.repos[0].path == work / "base"
     assert result.repos[1].path == work / "derived"
     assert (result.repos[1].path / "repo.yml").is_file()
@@ -290,7 +291,7 @@ def test_undeclared_dataset_credential(tmp_path: Path) -> None:
 
 @pytest.mark.needs_git
 @pytest.mark.skipif(not shutil.which("git"), reason="git not on PATH")
-def test_cross_repo_grant_unknown_schema(tmp_path: Path) -> None:
+def test_reads_from_schemas_unknown_schema(tmp_path: Path) -> None:
     (tmp_path / "base" / "repo.yml").parent.mkdir(parents=True)
     (tmp_path / "base" / "repo.yml").write_text(REPO_YML_BASE, encoding="utf-8")
     base_uri = init_git_push_bare(tmp_path / "base", tmp_path, "remote_base.git")
@@ -317,13 +318,70 @@ def test_cross_repo_grant_unknown_schema(tmp_path: Path) -> None:
                 protected: false
                 depends_on:
                   - base
-                cross_repo_grants:
+                reads_from_schemas:
                   - schema: no_such_schema
                     access: read
             """,
         ),
     )
-    with pytest.raises(DefinitionsLoadError, match="cross_repo_grants"):
+    with pytest.raises(DefinitionsLoadError, match="reads_from_schemas"):
+        load_definitions(manifest, tmp_path / "work", validate_repo_tree=False)
+
+
+def test_public_consumer_cannot_read_protected_schema(tmp_path: Path) -> None:
+    manifest = tmp_path / "definitions.yml"
+    _write_manifest(
+        manifest,
+        textwrap.dedent(
+            """\
+            definitions:
+              - name: protected_raw
+                url: "https://example.invalid/raw.git"
+                ref: main
+                schema: s_raw
+                protected: true
+              - name: public_agg
+                url: "https://example.invalid/agg.git"
+                ref: main
+                schema: s_public
+                protected: false
+                depends_on:
+                  - protected_raw
+                reads_from_schemas:
+                  - schema: s_raw
+                    access: read
+            """,
+        ),
+    )
+    with pytest.raises(DefinitionsLoadError, match="protected schema|public aggregate"):
+        load_definitions(manifest, tmp_path / "work", validate_repo_tree=False)
+
+
+def test_old_schema_read_property_rejected(tmp_path: Path) -> None:
+    manifest = tmp_path / "definitions.yml"
+    legacy_key = "cross_repo" + "_grants"
+    _write_manifest(
+        manifest,
+        textwrap.dedent(
+            f"""\
+            definitions:
+              - name: a
+                url: "https://example.invalid/a.git"
+                ref: main
+                schema: s_a
+                protected: false
+                {legacy_key}:
+                  - schema: s_b
+                    access: read
+              - name: b
+                url: "https://example.invalid/b.git"
+                ref: main
+                schema: s_b
+                protected: false
+            """,
+        ),
+    )
+    with pytest.raises(DefinitionsLoadError, match="Additional properties"):
         load_definitions(manifest, tmp_path / "work", validate_repo_tree=False)
 
 

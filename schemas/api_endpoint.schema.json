@@ -28,8 +28,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "anonymous": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "api_key": { "type": "string", "minLength": 1, "maxLength": 64 }
+        "anonymous": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Slowapi limit string (for example 60/minute) or none to disable app-level limits for anonymous requests."
+        },
+        "api_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Slowapi limit string (for example 600/minute) or none to disable app-level limits for bearer requests."
+        }
       }
     },
     "params": {

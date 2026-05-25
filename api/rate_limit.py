@@ -16,10 +16,20 @@ from api.auth_keys import parse_api_key_header
 
 DEFAULT_RATE_LIMIT_ANONYMOUS = "120/minute"
 DEFAULT_RATE_LIMIT_API_KEY = "120/minute"
+RateLimitValue = str | None
 
 
-def resolve_rate_limits(doc: dict[str, Any]) -> tuple[str, str]:
-    """Return ``(anonymous, api_key)`` limit strings for an endpoint YAML document."""
+def _normalize_rate_limit(raw: Any, default: str) -> RateLimitValue:
+    if raw is None or raw == "":
+        return default
+    value = str(raw).strip()
+    if value.lower() == "none":
+        return None
+    return value
+
+
+def resolve_rate_limits(doc: dict[str, Any]) -> tuple[RateLimitValue, RateLimitValue]:
+    """Return ``(anonymous, api_key)`` limits; ``None`` means no app-level limit for that tier."""
 
     raw = doc.get("rate_limit")
     if not isinstance(raw, dict):
@@ -27,8 +37,8 @@ def resolve_rate_limits(doc: dict[str, Any]) -> tuple[str, str]:
     anon = raw.get("anonymous")
     api_key = raw.get("api_key")
     return (
-        str(anon) if anon else DEFAULT_RATE_LIMIT_ANONYMOUS,
-        str(api_key) if api_key else DEFAULT_RATE_LIMIT_API_KEY,
+        _normalize_rate_limit(anon, DEFAULT_RATE_LIMIT_ANONYMOUS),
+        _normalize_rate_limit(api_key, DEFAULT_RATE_LIMIT_API_KEY),
     )
 
 
@@ -42,28 +52,41 @@ def tiered_rate_limit_key(request: Request) -> str:
     return get_remote_address(request)
 
 
-def make_tiered_limit_provider(anonymous: str, api_key: str) -> Callable[[str], str]:
-    """Pick the limit string from the rate-limit key (see :func:`tiered_rate_limit_key`)."""
+def anonymous_rate_limit_key(request: Request) -> str:
+    """Bucket only anonymous requests; bearer requests return empty to skip this limit."""
 
-    def _provider(key: str) -> str:
-        if key.startswith("apikey:"):
-            return api_key
-        return anonymous
+    if parse_api_key_header(request.headers.get("Authorization")):
+        return ""
+    return get_remote_address(request)
 
-    return _provider
+
+def api_key_rate_limit_key(request: Request) -> str:
+    """Bucket only bearer requests; anonymous requests return empty to skip this limit."""
+
+    bearer = parse_api_key_header(request.headers.get("Authorization"))
+    if not bearer:
+        return ""
+    digest = hashlib.sha256(bearer.encode("utf-8")).hexdigest()[:32]
+    return f"apikey:{digest}"
 
 
 def decorate_handler_with_rate_limit(
     limiter: Limiter,
     handler: Callable[..., Any],
     *,
-    anonymous: str,
-    api_key: str,
+    anonymous: RateLimitValue,
+    api_key: RateLimitValue,
 ) -> Callable[..., Any]:
     """Apply ``slowapi`` tiered limits to a YAML-generated route handler."""
 
-    provider = make_tiered_limit_provider(anonymous, api_key)
-    return limiter.limit(provider, key_func=tiered_rate_limit_key)(handler)
+    if anonymous is None and api_key is None:
+        return handler
+    decorated = handler
+    if anonymous is not None:
+        decorated = limiter.limit(anonymous, key_func=anonymous_rate_limit_key)(decorated)
+    if api_key is not None:
+        decorated = limiter.limit(api_key, key_func=api_key_rate_limit_key)(decorated)
+    return decorated
 
 
 def create_app_limiter() -> Limiter:

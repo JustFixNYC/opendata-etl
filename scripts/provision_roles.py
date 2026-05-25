@@ -140,7 +140,7 @@ def _loaded_repo_from_local_path(deployment: dict, repo_path: Path) -> LoadedDef
         protected=bool(row.get("protected", False)) if row else False,
         depends_on=tuple(),
         enabled_datasets=None,
-        cross_repo_grants=tuple(),
+        reads_from_schemas=tuple(),
         repo_yaml=repo_yaml,
         topo_index=0,
     )

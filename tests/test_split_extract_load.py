@@ -72,7 +72,7 @@ def test_extract_only_does_not_require_database_url(
             protected=False,
             depends_on=(),
             enabled_datasets=("sample_csv",),
-            cross_repo_grants=(),
+            reads_from_schemas=(),
             repo_yaml={"name": "r"},
             topo_index=0,
         )
@@ -108,7 +108,7 @@ def test_load_without_landing_paths_fails() -> None:
         protected=False,
         depends_on=(),
         enabled_datasets=("sample_csv",),
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml={"name": "r"},
         topo_index=0,
     )

@@ -5,7 +5,7 @@ description: |
 statement_timeout_seconds: 30
 rate_limit:
   anonymous: "60/minute"
-  api_key: "600/minute"
+  api_key: none
 params: []
 output:
   format: json

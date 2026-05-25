@@ -28,7 +28,7 @@ def _example_repo() -> LoadedDefinitionRepo:
         protected=False,
         depends_on=(),
         enabled_datasets=None,
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml={"name": "example_collection"},
         topo_index=0,
     )

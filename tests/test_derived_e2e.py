@@ -50,7 +50,7 @@ def _example_repo(schema: str) -> LoadedDefinitionRepo:
             "greeting_letter_counts",
             "building_rollups",
         ),
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml=load_yaml(EXAMPLE_REPO / "repo.yml"),
         topo_index=0,
     )

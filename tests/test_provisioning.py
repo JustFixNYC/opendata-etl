@@ -38,7 +38,7 @@ def test_public_read_grants_only_unprotected_schemas() -> None:
     assert 'GRANT "opendata_ex_reports_read" TO "opendata_public_read"' not in sql
 
 
-def test_cross_repo_grants_in_sql() -> None:
+def test_reads_from_schemas_in_sql() -> None:
     deployment = load_deployment_manifest(REPO_ROOT / "examples" / "definitions.prod.yml")
     sql = "\n".join(provision_sql_statements(deployment))
     assert 'GRANT USAGE ON SCHEMA "ex_housing" TO "opendata_ex_reports_read"' in sql
@@ -72,7 +72,7 @@ def test_provision_sql_stable_idempotent_shape() -> None:
     assert a == b
 
 
-def test_invalid_cross_repo_unknown_schema() -> None:
+def test_invalid_reads_from_schemas_unknown_schema() -> None:
     deployment = {
         "definitions": [
             {"name": "a", "url": "https://x/x.git", "ref": "1", "schema": "s_a", "protected": False},
@@ -83,11 +83,30 @@ def test_invalid_cross_repo_unknown_schema() -> None:
                 "schema": "s_b",
                 "protected": True,
                 "depends_on": ["a"],
-                "cross_repo_grants": [{"schema": "missing", "access": "read"}],
+                "reads_from_schemas": [{"schema": "missing", "access": "read"}],
             },
         ]
     }
     with pytest.raises(DefinitionsLoadError, match="unknown schema"):
+        ordered_deployment_definition_entries(deployment)
+
+
+def test_invalid_public_consumer_reads_protected_schema() -> None:
+    deployment = {
+        "definitions": [
+            {"name": "raw", "url": "https://x/raw.git", "ref": "1", "schema": "s_raw", "protected": True},
+            {
+                "name": "public_agg",
+                "url": "https://x/public.git",
+                "ref": "1",
+                "schema": "s_public",
+                "protected": False,
+                "depends_on": ["raw"],
+                "reads_from_schemas": [{"schema": "s_raw", "access": "read"}],
+            },
+        ]
+    }
+    with pytest.raises(DefinitionsLoadError, match="unprotected consumer|public aggregate"):
         ordered_deployment_definition_entries(deployment)
 
 

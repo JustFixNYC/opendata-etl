@@ -23,7 +23,7 @@ class SchemaAccessModel:
 
     @cached_property
     def public_read_schemas(self) -> frozenset[str]:
-        """Schemas reachable when connected as ``opendata_public_read`` (non-protected repos + cross-grants)."""
+        """Schemas reachable when connected as ``opendata_public_read`` (non-protected repos + explicit reads)."""
         return self.schemas_readable_by_role.get(PUBLIC_READ_ROLE, frozenset())
 
     def schemas_satisfied_by_role(self, role: str, referenced: frozenset[str]) -> bool:
@@ -72,7 +72,7 @@ class SchemaAccessModel:
 
 
 def build_schema_access_model(load_result: DefinitionsLoadResult) -> SchemaAccessModel:
-    """Derive readable schema sets per role from deployment rows (protected + cross_repo_grants)."""
+    """Derive readable schema sets per role from deployment rows (protected + reads_from_schemas)."""
 
     defs = load_result.deployment.get("definitions")
     if not isinstance(defs, list):
@@ -101,7 +101,7 @@ def build_schema_access_model(load_result: DefinitionsLoadResult) -> SchemaAcces
         schema = str(row["schema"])
         rr = read_role_for_schema(schema)
         add(rr, schema)
-        grants = row.get("cross_repo_grants") or []
+        grants = row.get("reads_from_schemas") or []
         if isinstance(grants, list):
             for g in grants:
                 if not isinstance(g, dict):
@@ -117,7 +117,7 @@ def build_schema_access_model(load_result: DefinitionsLoadResult) -> SchemaAcces
             continue
         rr = read_role_for_schema(str(row["schema"]))
         # ``GRANT rr TO opendata_public_read`` (provisioning) means the public role inherits all of ``rr``'s
-        # schema reach, including ``cross_repo_grants`` already folded into ``readable[rr]``.
+        # schema reach, including ``reads_from_schemas`` already folded into ``readable[rr]``.
         for sch in readable.get(rr, ()):
             add(PUBLIC_READ_ROLE, sch)
 

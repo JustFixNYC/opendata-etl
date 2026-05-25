@@ -45,6 +45,11 @@ def test_resolve_rate_limits_from_yaml() -> None:
     assert resolve_rate_limits(doc) == ("60/minute", "600/minute")
 
 
+def test_resolve_rate_limits_none_sentinel() -> None:
+    doc = {"rate_limit": {"anonymous": "none", "api_key": "none"}}
+    assert resolve_rate_limits(doc) == (None, None)
+
+
 def test_buildings_by_id_burst_returns_429(rate_limited_app: FastAPI) -> None:
     """Fixture endpoint allows 60 anonymous requests/minute; the 61st is rejected."""
     client = TestClient(rate_limited_app)
@@ -64,6 +69,22 @@ def test_buildings_by_id_bearer_uses_api_key_tier(rate_limited_app: FastAPI) -> 
         client.get("/buildings/by-id", params={"building_id": 1}, headers=headers).status_code
         for _ in range(65)
     ]
+    assert 429 not in statuses
+
+
+def test_api_key_none_tier_is_not_rate_limited(rate_limited_app: FastAPI) -> None:
+    client = TestClient(rate_limited_app)
+    headers = {"Authorization": "Bearer odk_test.fake-secret-for-none-tier"}
+    statuses = [
+        client.get("/fixture/building-count", headers=headers).status_code
+        for _ in range(150)
+    ]
+    assert 429 not in statuses
+
+
+def test_both_none_route_is_not_rate_limited(rate_limited_app: FastAPI) -> None:
+    client = TestClient(rate_limited_app)
+    statuses = [client.get("/fixture/unlimited-ping").status_code for _ in range(150)]
     assert 429 not in statuses
 
 

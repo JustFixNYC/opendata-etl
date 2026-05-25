@@ -88,7 +88,7 @@ def test_python_fn_name_for_table_asset_stable(tmp_path: Path) -> None:
         protected=False,
         depends_on=(),
         enabled_datasets=("d",),
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml={"name": "r"},
         topo_index=0,
     )
@@ -109,7 +109,7 @@ def test_enabled_datasets_filters_specs(tmp_path: Path) -> None:
         protected=False,
         depends_on=(),
         enabled_datasets=("keep_ds",),
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml={"name": "demo"},
         topo_index=0,
     )
@@ -136,7 +136,7 @@ def test_manifest_depends_on_edges(tmp_path: Path) -> None:
             protected=False,
             depends_on=(),
             enabled_datasets=None,
-            cross_repo_grants=(),
+            reads_from_schemas=(),
             repo_yaml={"name": "base"},
             topo_index=0,
         ),
@@ -149,7 +149,7 @@ def test_manifest_depends_on_edges(tmp_path: Path) -> None:
             protected=True,
             depends_on=("base",),
             enabled_datasets=None,
-            cross_repo_grants=(),
+            reads_from_schemas=(),
             repo_yaml={"name": "derived"},
             topo_index=1,
         ),
@@ -180,7 +180,7 @@ def test_dataset_level_depends_on(tmp_path: Path) -> None:
         protected=False,
         depends_on=(),
         enabled_datasets=None,
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml={"name": "solo"},
         topo_index=0,
     )
@@ -206,7 +206,7 @@ def test_invalid_dataset_schedule_cron_raises(tmp_path: Path) -> None:
         protected=False,
         depends_on=(),
         enabled_datasets=("bad_ds",),
-        cross_repo_grants=(),
+        reads_from_schemas=(),
         repo_yaml={"name": "r"},
         topo_index=0,
     )

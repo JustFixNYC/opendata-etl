@@ -102,12 +102,56 @@ def validate_deployment_document(data: Any, label: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise SchemaValidationError(f"{label}: expected mapping at root")
     validate_json(load_schema("definitions.schema.json"), data, label)
+    validate_deployment_access_model(data, label)
     return data
 
 
 def validate_deployment(path: Path) -> dict[str, Any]:
     data = load_yaml(path)
     return validate_deployment_document(data, str(path))
+
+
+def validate_deployment_access_model(deployment: dict[str, Any], label: str) -> None:
+    """Validate manifest-only access invariants not expressible in JSON Schema."""
+
+    defs = deployment.get("definitions")
+    if not isinstance(defs, list):
+        return
+
+    protected_by_schema: dict[str, bool] = {}
+    name_by_schema: dict[str, str] = {}
+    for row in defs:
+        if not isinstance(row, dict):
+            continue
+        schema = row.get("schema")
+        name = row.get("name")
+        if not isinstance(schema, str):
+            continue
+        protected_by_schema[schema] = bool(row.get("protected"))
+        name_by_schema[schema] = str(name) if isinstance(name, str) else schema
+
+    for row in defs:
+        if not isinstance(row, dict):
+            continue
+        consumer_name = str(row.get("name", "<unknown>"))
+        consumer_protected = bool(row.get("protected"))
+        reads = row.get("reads_from_schemas") or []
+        if not isinstance(reads, list):
+            continue
+        for item in reads:
+            if not isinstance(item, dict):
+                continue
+            upstream_schema = item.get("schema")
+            if not isinstance(upstream_schema, str):
+                continue
+            if not consumer_protected and protected_by_schema.get(upstream_schema, False):
+                upstream_name = name_by_schema.get(upstream_schema, upstream_schema)
+                raise SchemaValidationError(
+                    f"{label}: {consumer_name}: reads_from_schemas must not grant an "
+                    f"unprotected consumer access to protected schema {upstream_schema!r} "
+                    f"({upstream_name}). Materialize deidentified/public aggregate tables "
+                    "into the consumer schema instead."
+                )
 
 
 def assert_dataset_credentials_declared(

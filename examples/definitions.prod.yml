@@ -2,7 +2,7 @@ api_version: opendata-etl.definitions/v1
 profile: standard
 notes: |
   Generic production-shaped fixture manifest. It demonstrates one public schema,
-  one protected schema, and an explicit cross-schema read grant without using
+  one protected schema, and an explicit schema-read grant without using
   operator-specific repositories, credentials, or paths.
 source_credentials:
   fake_source_reader:
@@ -27,7 +27,7 @@ definitions:
     protected: true
     depends_on:
       - example_collection
-    cross_repo_grants:
+    reads_from_schemas:
       - schema: ex_housing
         access: read
     enabled_datasets:

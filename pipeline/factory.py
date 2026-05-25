@@ -565,7 +565,7 @@ def embedded_example_load_result(repo_root: Path | None = None) -> DefinitionsLo
         protected=bool(row["protected"]),
         depends_on=tuple(sorted(str(x) for x in (row.get("depends_on") or []) if isinstance(x, str))),
         enabled_datasets=enabled_tuple,
-        cross_repo_grants=tuple(dict(g) for g in (row.get("cross_repo_grants") or []) if isinstance(g, dict)),
+        reads_from_schemas=tuple(dict(g) for g in (row.get("reads_from_schemas") or []) if isinstance(g, dict)),
         repo_yaml=load_yaml(ex_path / "repo.yml"),
         topo_index=0,
     )

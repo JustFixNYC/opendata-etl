@@ -46,7 +46,7 @@ class LoadedDefinitionRepo:
     protected: bool
     depends_on: tuple[str, ...]
     enabled_datasets: tuple[str, ...] | None
-    cross_repo_grants: tuple[dict[str, Any], ...]
+    reads_from_schemas: tuple[dict[str, Any], ...]
     repo_yaml: dict[str, Any]
     """Parsed ``repo.yml`` (JSON-compatible types)."""
     topo_index: int
@@ -135,7 +135,7 @@ def _normalize_entry(raw: Any, idx: int) -> dict[str, Any]:
 def ordered_deployment_definition_entries(deployment: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     """Return ``definitions`` rows in dependency-first topological order (same as ``load_definitions``).
 
-    Validates duplicate ``name`` / ``schema``, ``depends_on``, and ``cross_repo_grants`` the same way
+    Validates duplicate ``name`` / ``schema``, ``depends_on``, and ``reads_from_schemas`` the same way
     as the loader (without cloning repos). Call after ``validate_deployment_document``.
     """
     defs_list = deployment.get("definitions")
@@ -179,27 +179,35 @@ def ordered_deployment_definition_entries(deployment: dict[str, Any]) -> tuple[d
         raise DefinitionsLoadError(str(ex)) from ex
 
     all_schemas = {str(e["schema"]) for e in entries}
+    protected_by_schema = {str(e["schema"]): bool(e.get("protected")) for e in entries}
     ordered: list[dict[str, Any]] = []
     for name in topo_names:
         entry = next(e for e in entries if str(e["name"]) == name)
         schema = str(entry["schema"])
-        grants = entry.get("cross_repo_grants") or []
+        consumer_protected = bool(entry.get("protected"))
+        grants = entry.get("reads_from_schemas") or []
         if not isinstance(grants, list):
-            raise DefinitionsLoadError(f"{name}: cross_repo_grants must be an array when present")
+            raise DefinitionsLoadError(f"{name}: reads_from_schemas must be an array when present")
         for g in grants:
             if not isinstance(g, dict):
-                raise DefinitionsLoadError(f"{name}: cross_repo_grants items must be mappings")
+                raise DefinitionsLoadError(f"{name}: reads_from_schemas items must be mappings")
             foreign = g.get("schema")
             if not isinstance(foreign, str):
                 continue
             if foreign == schema:
                 raise DefinitionsLoadError(
-                    f"{name}: cross_repo_grants must not target this repo's own schema {foreign!r}"
+                    f"{name}: reads_from_schemas must not target this repo's own schema {foreign!r}"
                 )
             if foreign not in all_schemas:
                 raise DefinitionsLoadError(
-                    f"{name}: cross_repo_grants references unknown schema {foreign!r} "
+                    f"{name}: reads_from_schemas references unknown schema {foreign!r} "
                     f"(not a definitions[].schema in this manifest)"
+                )
+            if not consumer_protected and protected_by_schema.get(foreign, False):
+                raise DefinitionsLoadError(
+                    f"{name}: reads_from_schemas must not grant an unprotected consumer access "
+                    f"to protected schema {foreign!r}; materialize public aggregate tables in "
+                    "the consumer schema instead"
                 )
         ordered.append(entry)
     return tuple(ordered)
@@ -290,7 +298,7 @@ def load_definitions(
                 f"{name}: repo.yml dependencies reference unknown repos: {sorted(unknown_declared)}"
             )
 
-        grants = entry.get("cross_repo_grants") or []
+        grants = entry.get("reads_from_schemas") or []
         grant_tuples: tuple[dict[str, Any], ...] = tuple(dict(g) for g in grants if isinstance(g, dict))
 
         try:
@@ -317,7 +325,7 @@ def load_definitions(
                 protected=protected,
                 depends_on=tuple(sorted(str(x) for x in (entry.get("depends_on") or []) if isinstance(x, str))),
                 enabled_datasets=enabled_tuple,
-                cross_repo_grants=grant_tuples,
+                reads_from_schemas=grant_tuples,
                 repo_yaml=repo_yaml,
                 topo_index=topo_index,
             )

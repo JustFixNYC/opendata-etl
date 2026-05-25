@@ -94,7 +94,7 @@ def provision_sql_statements(
         schema = str(entry["schema"])
         read_role = read_role_for_schema(schema)
         rq = quote_ident(read_role)
-        grants = entry.get("cross_repo_grants") or []
+        grants = entry.get("reads_from_schemas") or []
         if not isinstance(grants, list):
             continue
         for g in grants:
