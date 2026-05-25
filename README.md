@@ -36,9 +36,11 @@ Local and CI environments should use **pinned git revisions** for each definitio
 
 ## Python extras
 
-- **`pip install ".[dev]"`** — PyYAML, jsonschema, pytest (definition validation and unit tests).
-- **`pip install ".[docs]"`** — MkDocs and Material theme (aggregated documentation site).
+- **`pip install -e ".[dev]"`** — local test and validation tools, including pytest and `dg`.
+- **`pip install -e ".[docs]"`** — MkDocs and Material theme (aggregated documentation site).
 - **`pip install ".[compose]"`** — Dagster webserver, FastAPI, uvicorn, plus PyYAML/jsonschema (matches the application image install).
+
+CI installs **`pip install -e ".[dev,docs]"`** so tests, definition validation, `dg check`, dbt parsing, and MkDocs all use the same packaged extras.
 
 ## Source-of-truth documents
 

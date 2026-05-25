@@ -34,6 +34,7 @@ dev = [
   "requests>=2.31.0",
   "moto[s3]>=5.0.0",
   "dagster==1.13.4",
+  "dagster-dg-cli==1.13.4",
   "dagster-dbt==0.29.4",
   "dagster-slack==0.29.4",
   "dbt-core>=1.8,<1.12",
